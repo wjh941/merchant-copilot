@@ -117,12 +117,14 @@ async function api(pathname, init) {
 function summarize(products, orders, days) {
   const since = Date.now() - days * 864e5;
   const recent = orders.filter(o => new Date(o.created_at).getTime() >= since);
-  const completed = recent.filter(o => o.status === 'completed' || o.status === 'order_placed');
-  const revenue = completed.reduce((s, o) => s + o.total, 0);
+  // 营收口径 = 非取消订单（真店订单多为 pending：未收款但已是有效成交意向）
+  const effective = recent.filter(o => o.status !== 'cancelled');
+  const revenue = effective.reduce((s, o) => s + o.total, 0);
   const byStatus = {};
   for (const o of recent) byStatus[o.status] = (byStatus[o.status] || 0) + (o.total || 0);
+  const completed = recent.filter(o => o.status === 'completed' || o.status === 'order_placed');
   const qty = {};
-  for (const o of completed) for (const it of (o.items || [])) {
+  for (const o of effective) for (const it of (o.items || [])) {
     const pid = it.product_id || (it.variant && it.variant.product_id);
     if (pid) qty[pid] = (qty[pid] || 0) + (it.quantity || 1);
   }
@@ -137,12 +139,12 @@ function summarize(products, orders, days) {
       if (v.price <= 0) zeroPrice.push({ product: p.title, variant_id: v.id, sku: v.sku, price: v.price });
     }
   }
-  return {
-    period_days: days,
-    revenue: Math.round(revenue * 100) / 100,
-    order_count: recent.length,
-    completed_count: completed.length,
-    aov: completed.length ? Math.round(revenue / completed.length * 100) / 100 : 0,
+    return {
+      period_days: days,
+      revenue: Math.round(revenue * 100) / 100,
+      order_count: recent.length,
+      completed_count: effective.length,
+      aov: effective.length ? Math.round(revenue / effective.length * 100) / 100 : 0,
     revenue_by_status: byStatus,
     top_products: topProducts,
     data_quality: { low_stock: lowStock, zero_price_variants: zeroPrice, missing_description: missingDescription },
@@ -159,7 +161,7 @@ async function readOrders(limit) {
     const raw = await medusa.listOrders(limit || 200);
     return raw.map(o => ({
       id: o.id, display_id: o.display_id ? '#' + o.display_id : o.id, status: o.status,
-      items: (o.items || []).map(it => ({ product_id: it.variant_id, title: it.title, variant_id: it.variant_id, sku: it.sku, quantity: it.quantity, unit_price: (it.unit_price || 0) / 100 })),
+      items: (o.items || []).map(it => ({ product_id: it.product_id || it.variant_id, title: it.title, variant_id: it.variant_id, sku: it.sku, quantity: it.quantity, unit_price: (it.unit_price || 0) / 100 })),
       total: (o.total || 0) / 100, currency: o.currency_code || 'usd', created_at: o.created_at,
     }));
   }

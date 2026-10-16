@@ -163,10 +163,11 @@ Copilot Agent ──MCP──▶ 工具层(BACKEND=medusa: 读真店) ──prop
                                                             medusa.js 适配器 ──Admin API──▶ 真 Medusa 店铺(:9000)
 ```
 
-- **真店数据**：9 个商品 / 15 个变体已灌入（`node server/medusa-seed.js`），库存走 v2 的 stock-location/location-level 模型
+- **真店数据**：9 个商品 / 16 个变体 / 15 笔真实订单已灌入（`medusa-seed.js` + `medusa-orders-seed.js`，含 CNY region、双币价格、销售渠道↔库存位置关联）
+- **真数据分析已验证**：medusa 模式下 30 天营收 ¥7,873 / 15 单 / AOV ¥524.87、热卖榜、滞销清单、低库存全部来自真实 Medusa 数据
 - **执行桥**：`MEDUSA_URL=... node server/store-server.js` 启动后，批准的动作（改价/改标题/补货）调用 Medusa Admin API 真实生效；执行失败变更保持 pending 可重试；不设该变量则执行到本地仿真（评测默认，保证确定性）
 - **读切换**：`BACKEND=medusa node agent/copilot.js --llm "..."` 时，agent 的搜索/详情/订单/分析/滞销工具全部吃真店数据
-- 已验证的写路径：改价（prices 全量替换）、补货（inventory-items → location-levels）、改标题/描述
-- 已知细节：店铺侧 `/store/products` 依赖 link/index 模块异步同步——管理端 API 不受影响（Copilot 工具走管理端）
+- 已验证的写路径：改价（prices 全量替换，双币）、补货（inventory-items → location-levels，需先建 stock location 并与销售渠道互链）、改标题/描述
+- 踩坑：建单报 "sales channel not associated with stock location" 时，除了渠道↔位置关联，还要检查**该变体在位置上是否有库存记录**（预留库存失败会报这个误导性错误）；草稿单转正式用 `/admin/draft-orders/:id/convert-to-order`
 
 环境搭建踩坑记录（v2.21 实测）：新版 npm allow-scripts 拦截 esbuild postinstall（`npm approve-scripts esbuild`）；medusa-config.ts 必须配 jwtSecret/cookieSecret；tsconfig 用官方 starter 的 `module: Node16` + `ts-node.swc`（需 ts-node/@swc/core/@swc-node/register）；admin 面板 build 产物目录与 `medusa start` 不兼容（本项目用自建运营台代替，config 里 `admin.disable: true`）。
