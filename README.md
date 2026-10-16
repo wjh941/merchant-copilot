@@ -145,7 +145,16 @@ merchant-copilot/
 
 ## Roadmap
 
-- **v0.4**：换真 Medusa v2 后端（MCP server 改造为调 Medusa API）→ 项目升级为"Medusa 生态的 MCP server"开源件
-- **v0.5**：评测强化——多模型横评（GLM/DeepSeek/Qwen 同一评测集）、加 2-3 个多步长程任务（如"找出滞销品→提案打折→生成文案"）
+- **v0.4（进行中）**：换真 Medusa v2 后端 —— 基础设施已就绪（本地 PostgreSQL 18 + Medusa 2.21 已跑通 `db:migrate` / 管理员认证 / Admin API 建品读写），下一步：MCP 工具层加 `BACKEND=medusa` 适配器、审批门生效动作落到 Medusa API
+- **v0.5**：评测强化——失败分类（infra vs capability，双模型横评中 503 污染数据的教训）、多步长程任务扩展
 - **v0.6**：售后客服场景（RAG 挂订单+政策、退款类操作强制人工、转人工）——复用同一套审批门
 - **v0.7**：只读演示 ACP agentic checkout 流程（对齐协议层，面试谈资）
+
+## Medusa 集成进展（v0.4）
+
+真 Medusa v2.21.2 后端搭建在独立目录（`D:\my idea\medusa-store\backend`），连接本地 PostgreSQL 18（`D:\pgsql`，zip 版免管理员安装）：
+
+- ✅ `medusa db:migrate` 全量迁移、管理员账号（`admin@merchant.local`）、JWT 认证
+- ✅ Admin API 建品/查品全链路验证（含 v2.21 的 options[].values 字符串数组格式、销售渠道绑定、publishable key）
+- 已知细节：店铺侧 `/store/products` 依赖 link/index 模块异步同步，商品建后需等待或触发索引——管理端 API 不受影响（Copilot 工具走管理端）
+- 踩坑记录：新版 npm allow-scripts 拦截 esbuild postinstall（需 `npm approve-scripts`）；medusa-config.ts 要配 jwtSecret/cookieSecret；tsconfig 需官方 starter 的 `module: Node16` + `ts-node.swc` 方案
