@@ -10,6 +10,11 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { buildSeed } = require('./seed-data');
+const medusa = require('./medusa');
+
+// 后端执行目标：设置 MEDUSA_URL 后，审批通过的动作会【真实执行到 Medusa 店铺】；
+// 未设置则执行到本地 JSON 仿真数据（默认，评测用）。
+const EXEC_MEDUSA = !!process.env.MEDUSA_URL;
 
 const DB_FILE = path.join(__dirname, '..', 'data', 'store.json');
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4310;
@@ -361,9 +366,10 @@ const ACTIONS = {
   update_variant_price: {
     desc: '修改变体价格',
     validate(params) {
+      if (typeof params.price !== 'number' || params.price <= 0) return 'price 必须是正数';
+      if (EXEC_MEDUSA) return null; // 真店模式：存在性由执行器在批准时验证（medusa sku 不在本地库里）
       const hit = findVariant(params.variant_id);
       if (!hit) return 'variant 不存在: ' + params.variant_id;
-      if (typeof params.price !== 'number' || params.price <= 0) return 'price 必须是正数';
       return null;
     },
     apply(params) {
@@ -376,8 +382,9 @@ const ACTIONS = {
   update_product_title: {
     desc: '修改商品标题',
     validate(params) {
-      if (!findProduct(params.product_id)) return 'product 不存在: ' + params.product_id;
       if (!params.title || typeof params.title !== 'string') return 'title 必须是非空字符串';
+      if (EXEC_MEDUSA) return null;
+      if (!findProduct(params.product_id)) return 'product 不存在: ' + params.product_id;
       return null;
     },
     apply(params) {
@@ -390,9 +397,10 @@ const ACTIONS = {
   update_product_description: {
     desc: '补全商品描述',
     validate(params) {
+      if (!params.description || typeof params.description !== 'string') return 'description 必须是非空字符串';
+      if (EXEC_MEDUSA) return null;
       const p = findProduct(params.product_id);
       if (!p) return 'product 不存在: ' + params.product_id;
-      if (!params.description || typeof params.description !== 'string') return 'description 必须是非空字符串';
       return null;
     },
     apply(params) {
@@ -404,9 +412,10 @@ const ACTIONS = {
   restock_variant: {
     desc: '补货（设置库存）',
     validate(params) {
+      if (typeof params.inventory !== 'number' || params.inventory < 0) return 'inventory 必须是非负数';
+      if (EXEC_MEDUSA) return null;
       const hit = findVariant(params.variant_id);
       if (!hit) return 'variant 不存在: ' + params.variant_id;
-      if (typeof params.inventory !== 'number' || params.inventory < 0) return 'inventory 必须是非负数';
       return null;
     },
     apply(params) {
@@ -535,6 +544,41 @@ async function createJob(req, res, body) {
   json(res, 201, { id: job.id });
   runJob(job); // 异步执行，前端轮询
 }
+// 审批生效的执行器：本地仿真 或 真实 Medusa 店铺
+async function applyToBackend(change) {
+  if (!EXEC_MEDUSA) {
+    return { backend: 'local', result: ACTIONS[change.action].apply(change.params) };
+  }
+  const params = change.params;
+  const products = await medusa.listProducts(200);
+  const findVariant = (idOrSku) => {
+    for (const p of products) {
+      const v = p.variants.find(v => v.id === idOrSku || v.sku === idOrSku);
+      if (v) return { product: p, variant: v };
+    }
+    return null;
+  };
+  if (change.action === 'update_variant_price') {
+    const hit = findVariant(params.variant_id);
+    if (!hit) throw new Error('Medusa 中找不到变体: ' + params.variant_id);
+    await medusa.updateVariantPrice(hit.product.id, hit.variant.id, params.price, hit.variant.currency);
+    return { backend: 'medusa', result: { variant_id: hit.variant.sku, price_after: params.price, currency: hit.variant.currency } };
+  }
+  if (change.action === 'update_product_title' || change.action === 'update_product_description') {
+    const p = products.find(p => p.id === params.product_id);
+    if (!p) throw new Error('Medusa 中找不到商品: ' + params.product_id);
+    await medusa.updateProduct(p.id, { title: params.title, description: params.description });
+    return { backend: 'medusa', result: { product_id: p.id } };
+  }
+  if (change.action === 'restock_variant') {
+    const hit = findVariant(params.variant_id);
+    if (!hit) throw new Error('Medusa 中找不到变体: ' + params.variant_id);
+    await medusa.restock(hit.product.id, hit.variant, params.inventory);
+    return { backend: 'medusa', result: { variant_id: hit.variant.sku, inventory_after: params.inventory } };
+  }
+  throw new Error('未知 action: ' + change.action);
+}
+
 // ---------- HTTP 路由 ----------
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
@@ -657,12 +701,19 @@ const server = http.createServer(async (req, res) => {
         broadcast('refresh', { reason: 'staged', change_id: id });
         return json(res, 200, { ok: true, change });
       }
-      const result = ACTIONS[change.action].apply(change.params);
+      let applied;
+      try {
+        applied = await applyToBackend(change);
+      } catch (e) {
+        // 执行失败 → 变更保持 pending（审批未生效，可重试），审计留痕
+        audit(who, 'approve_failed', { change_id: id, action: change.action, error: String(e.message).slice(0, 200) });
+        return json(res, 502, { error: '执行失败（变更仍为待审批）: ' + e.message });
+      }
       change.status = 'applied'; change.decided_at = new Date().toISOString(); change.decided_by = who;
-      saveDb();
-      audit(who, 'approve', { change_id: id, action: change.action, result });
+      if (applied.backend === 'local') saveDb();
+      audit(who, 'approve', { change_id: id, action: change.action, backend: applied.backend, result: applied.result });
       broadcast('refresh', { reason: 'staged', change_id: id });
-      return json(res, 200, { ok: true, change, applied: result });
+      return json(res, 200, { ok: true, change, applied: applied.result, backend: applied.backend });
     }
 
     // 围栏演示：任何直接写商品的尝试都返回 403

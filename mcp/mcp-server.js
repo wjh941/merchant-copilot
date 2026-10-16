@@ -9,6 +9,11 @@
 // 协议：JSON-RPC 2.0 over stdio，换行分隔（与 MCP 官方 stdio 传输一致）。
 'use strict';
 const STORE = process.env.STORE_URL || 'http://127.0.0.1:4310';
+// BACKEND=medusa 时，读工具直接吃真店铺数据（搜索/详情/订单/分析/滞销）；
+// 写永远走 propose_* → store-server 审批门（由它决定落 Medusa 还是本地仿真）。
+const BACKEND = process.env.BACKEND || 'mock';
+let medusa = null;
+if (BACKEND === 'medusa') medusa = require('../server/medusa');
 
 // ---------- 工具定义 ----------
 const TOOLS = [
@@ -100,7 +105,7 @@ const TOOLS = [
   },
 ];
 
-// ---------- 工具实现（全部走店铺 HTTP API）----------
+// ---------- 工具实现（全部走店铺 HTTP API；BACKEND=medusa 时读真店铺）----------
 async function api(pathname, init) {
   const res = await fetch(STORE + pathname, init);
   const data = await res.json().catch(() => ({}));
@@ -108,10 +113,63 @@ async function api(pathname, init) {
   return data;
 }
 
+// 把"商品列表 + 订单"折算成 analytics 形状（medusa 模式用；mock 模式走服务端接口保持口径一致）
+function summarize(products, orders, days) {
+  const since = Date.now() - days * 864e5;
+  const recent = orders.filter(o => new Date(o.created_at).getTime() >= since);
+  const completed = recent.filter(o => o.status === 'completed' || o.status === 'order_placed');
+  const revenue = completed.reduce((s, o) => s + o.total, 0);
+  const byStatus = {};
+  for (const o of recent) byStatus[o.status] = (byStatus[o.status] || 0) + (o.total || 0);
+  const qty = {};
+  for (const o of completed) for (const it of (o.items || [])) {
+    const pid = it.product_id || (it.variant && it.variant.product_id);
+    if (pid) qty[pid] = (qty[pid] || 0) + (it.quantity || 1);
+  }
+  const topProducts = Object.entries(qty).map(([id, q]) => ({ product_id: id, title: (products.find(p => p.id === id) || {}).title || id, qty: q }))
+    .sort((a, b) => b.qty - a.qty).slice(0, 5);
+  const lowStock = [], zeroPrice = [], missingDescription = [];
+  for (const p of products) {
+    if (p.status !== 'published' && p.status !== 'active' && p.status !== 'published') continue;
+    if (p.status === 'published' && !p.description) missingDescription.push({ id: p.id, title: p.title });
+    for (const v of p.variants) {
+      if (v.inventory < 10) lowStock.push({ product: p.title, variant_id: v.id, sku: v.sku, inventory: v.inventory });
+      if (v.price <= 0) zeroPrice.push({ product: p.title, variant_id: v.id, sku: v.sku, price: v.price });
+    }
+  }
+  return {
+    period_days: days,
+    revenue: Math.round(revenue * 100) / 100,
+    order_count: recent.length,
+    completed_count: completed.length,
+    aov: completed.length ? Math.round(revenue / completed.length * 100) / 100 : 0,
+    revenue_by_status: byStatus,
+    top_products: topProducts,
+    data_quality: { low_stock: lowStock, zero_price_variants: zeroPrice, missing_description: missingDescription },
+  };
+}
+
+async function readProducts() {
+  if (BACKEND === 'medusa') return medusa.listProducts(200);
+  return (await api('/admin/products')).products;
+}
+
+async function readOrders(limit) {
+  if (BACKEND === 'medusa') {
+    const raw = await medusa.listOrders(limit || 200);
+    return raw.map(o => ({
+      id: o.id, display_id: o.display_id ? '#' + o.display_id : o.id, status: o.status,
+      items: (o.items || []).map(it => ({ product_id: it.variant_id, title: it.title, variant_id: it.variant_id, sku: it.sku, quantity: it.quantity, unit_price: (it.unit_price || 0) / 100 })),
+      total: (o.total || 0) / 100, currency: o.currency_code || 'usd', created_at: o.created_at,
+    }));
+  }
+  return (await api(`/admin/orders?status=&limit=${limit || 200}`)).orders;
+}
+
 async function callTool(name, args) {
   switch (name) {
     case 'search_products': {
-      const { products } = await api('/admin/products');
+      const products = await readProducts();
       const q = (args.query || '').toLowerCase();
       const hit = products.filter(p =>
         (!q || p.title.toLowerCase().includes(q)
@@ -124,30 +182,40 @@ async function callTool(name, args) {
         variants: p.variants.map(v => ({ id: v.id, sku: v.sku, title: v.title, price: v.price, inventory: v.inventory })) }));
     }
     case 'get_product': {
-      const { products } = await api('/admin/products');
+      const products = await readProducts();
       const p = products.find(x => x.id === args.product_id);
       if (!p) throw new Error('商品不存在: ' + args.product_id);
       return p;
     }
-    case 'list_orders':
-      return (await api(`/admin/orders?status=${args.status || ''}&limit=${args.limit || 20}`)).orders;
-    case 'get_analytics':
-      return api('/admin/analytics/summary?days=' + (args.days || 30));
+    case 'list_orders': {
+      let orders = await readOrders(500);
+      if (args.status) orders = orders.filter(o => o.status === args.status);
+      return orders.slice(0, args.limit || 20);
+    }
+    case 'get_analytics': {
+      const days = args.days || 30;
+      if (BACKEND === 'medusa') {
+        const [products, orders] = await Promise.all([readProducts(), readOrders(2000)]);
+        return summarize(products, orders, days);
+      }
+      return api('/admin/analytics/summary?days=' + days);
+    }
     case 'find_stale_products': {
       const days = args.days || 14;
       const minInv = args.min_inventory == null ? 60 : args.min_inventory;
-      const [{ products }, { orders }] = await Promise.all([
-        api('/admin/products'),
-        api(`/admin/orders?status=completed&limit=2000`),
-      ]);
+      const [products, orders] = await Promise.all([readProducts(), readOrders(2000)]);
       const since = Date.now() - days * 864e5;
       const sold = new Set();
       for (const o of orders) {
+        if (o.status !== 'completed' && o.status !== 'order_placed') continue;
         if (new Date(o.created_at).getTime() < since) continue;
-        for (const it of o.items) sold.add(it.product_id);
+        for (const it of (o.items || [])) {
+          const pid = it.product_id || (it.variant && it.variant.product_id);
+          if (pid) sold.add(pid);
+        }
       }
       return products
-        .filter(p => p.status === 'published' && !sold.has(p.id))
+        .filter(p => !sold.has(p.id))
         .map(p => ({ ...p, total_inventory: p.variants.reduce((s, v) => s + v.inventory, 0) }))
         .filter(p => p.total_inventory > minInv)
         .map(p => ({ id: p.id, title: p.title, category: p.category, total_inventory: p.total_inventory,
@@ -227,4 +295,4 @@ async function handle(line) {
 }
 
 function send(obj) { process.stdout.write(JSON.stringify(obj) + '\n'); }
-process.stderr.write(`[mcp] merchant-copilot-store MCP server ready -> ${STORE}\n`);
+process.stderr.write(`[mcp] merchant-copilot-store MCP server ready (backend=${BACKEND}, store=${STORE})\n`);

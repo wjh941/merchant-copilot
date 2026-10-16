@@ -152,9 +152,21 @@ merchant-copilot/
 
 ## Medusa 集成进展（v0.4）
 
-真 Medusa v2.21.2 后端搭建在独立目录（`D:\my idea\medusa-store\backend`），连接本地 PostgreSQL 18（`D:\pgsql`，zip 版免管理员安装）：
+**核心闭环已打通并实测**：agent 通过 MCP 读真店铺数据 → 提案 → 店主在审批队列点批准 → **变更真实执行到 Medusa**（审计记录 `backend: "medusa"`），再用 Medusa API 独立复核生效。
 
-- ✅ `medusa db:migrate` 全量迁移、管理员账号（`admin@merchant.local`）、JWT 认证
-- ✅ Admin API 建品/查品全链路验证（含 v2.21 的 options[].values 字符串数组格式、销售渠道绑定、publishable key）
-- 已知细节：店铺侧 `/store/products` 依赖 link/index 模块异步同步，商品建后需等待或触发索引——管理端 API 不受影响（Copilot 工具走管理端）
-- 踩坑记录：新版 npm allow-scripts 拦截 esbuild postinstall（需 `npm approve-scripts`）；medusa-config.ts 要配 jwtSecret/cookieSecret；tsconfig 需官方 starter 的 `module: Node16` + `ts-node.swc` 方案
+架构：
+
+```
+Copilot Agent ──MCP──▶ 工具层(BACKEND=medusa: 读真店) ──propose──▶ 审批网关(:4310)
+                                                                    │ 店主批准
+                                                                    ▼
+                                                            medusa.js 适配器 ──Admin API──▶ 真 Medusa 店铺(:9000)
+```
+
+- **真店数据**：9 个商品 / 15 个变体已灌入（`node server/medusa-seed.js`），库存走 v2 的 stock-location/location-level 模型
+- **执行桥**：`MEDUSA_URL=... node server/store-server.js` 启动后，批准的动作（改价/改标题/补货）调用 Medusa Admin API 真实生效；执行失败变更保持 pending 可重试；不设该变量则执行到本地仿真（评测默认，保证确定性）
+- **读切换**：`BACKEND=medusa node agent/copilot.js --llm "..."` 时，agent 的搜索/详情/订单/分析/滞销工具全部吃真店数据
+- 已验证的写路径：改价（prices 全量替换）、补货（inventory-items → location-levels）、改标题/描述
+- 已知细节：店铺侧 `/store/products` 依赖 link/index 模块异步同步——管理端 API 不受影响（Copilot 工具走管理端）
+
+环境搭建踩坑记录（v2.21 实测）：新版 npm allow-scripts 拦截 esbuild postinstall（`npm approve-scripts esbuild`）；medusa-config.ts 必须配 jwtSecret/cookieSecret；tsconfig 用官方 starter 的 `module: Node16` + `ts-node.swc`（需 ts-node/@swc/core/@swc-node/register）；admin 面板 build 产物目录与 `medusa start` 不兼容（本项目用自建运营台代替，config 里 `admin.disable: true`）。
