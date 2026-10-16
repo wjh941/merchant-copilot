@@ -1,0 +1,150 @@
+# 店铺运营 Copilot（merchant-copilot）v0.3
+
+一个带**人工审批门**的电商运营 agent 最小可行版：agent 能查数据、能分析经营、能提案改价/补货/修数据，但**任何写操作都必须店主在运营台点批准才生效**。已接入真实 LLM 评测（通过率/token 成本/安全断言全程记账），**全套可在浏览器里演示**——从给 Copilot 派活、实时看它干活，到人工审批生效，一个页面走完。
+
+对标 [anthropics/commerce-agents](https://github.com/anthropics/commerce-agents) 的 merchant-agent 安全模式，区别在于：Anthropic 的是虚构公司参考蓝图，本项目跑在**真实可运行的后端**上，且带一套**确定性评测集**。
+
+**零 npm 依赖** —— 只需要 Node 18+（内置 fetch / http / child_process）。
+
+---
+
+## 30 秒跑起来
+
+```bash
+node server/seed.js          # 1. 生成仿真数据（36 商品 / 136 订单 + 故意注入的脏数据）
+node server/store-server.js  # 2. 启动店铺后端（端口 4310）
+```
+
+浏览器打开 **http://127.0.0.1:4310/** —— 就是全部：
+
+- **洞察建议（💡）**：Copilot 主动扫描经营数据生成建议卡——缺货流失🚨/售罄预测📦/滞销占压🕸️/营收异动📉/零价格🏷️/缺描述📝/同名重复👥，每张卡带量化依据和**"让 Copilot 处理"一键派活**（部分卡有免 key 预设）。**卡片在人工批准前不会消失**——数据和 UI 共守审批门
+- **营业模拟**：后台每 12 秒产生新订单并**真实扣减库存**，库存不足 → 订单流失（有记录）。补货提案被批准后流失即停止——agent 的动作有真实后果，看板是活的
+- **运营台首页**：KPI（带环比涨跌 + 数字滚动）、30 天营收/订单趋势图（canvas 手绘，悬停有 tooltip）、数据质量体检
+- **审批队列**：agent 的提案在这里排队，点「批准生效/拒绝」，按状态筛选，一键重置演示数据
+- **商品**：36 个商品浏览，搜索（支持 SKU）/类目/状态过滤，库存条与脏数据高亮
+- **🤖 Copilot**：左侧 20 个预设任务一键跑（无需 API key，看实时工具调用轨迹）；配置 key 后可用自然语言派活；产生的提案一键跳去审批
+- **审计**：每次提案/批准/拒绝/围栏拦截全留痕
+
+命令行方式（可选）：
+
+```bash
+node agent/copilot.js --scripted all     # 脚本化演示（无需 LLM key）
+node agent/copilot.js --llm "最近7天卖了多少钱？缺点什么的商品列一下"   # 真实 LLM 模式（见下文配置）
+```
+
+跑评测：
+
+```bash
+node evals/run-evals.js      # 20 个任务 + 确定性验证器 → evals/results.json
+```
+
+> 评测/演示会往审批队列里塞提案。重复跑之前先重置：杀掉 server → 重新 `node server/seed.js` → 重启 server。
+
+---
+
+## 架构
+
+```
+┌──────────────┐   MCP (stdio/JSON-RPC)   ┌──────────────────┐   HTTP    ┌──────────────────┐
+│ Copilot Agent │ ───────────────────────▶ │   MCP Server      │ ────────▶ │   店铺后端         │
+│ (agent/)      │   8 个工具: 5 读 + 3 提案 │   (mcp/)          │           │   (server/)       │
+└──────────────┘                          └──────────────────┘           └────────┬─────────┘
+                                                                                   │ 唯一写路径
+                                                                          ┌────────▼─────────┐
+                                                                          │ 暂存变更队列       │ ◀── 人工审批（运营台）
+                                                                          │ pending→applied   │     http://127.0.0.1:4310/
+                                                                          └──────────────────┘
+```
+
+- **agent ↔ MCP**：agent 是一个最小 MCP stdio 客户端（`mcp/client.js`），工具发现/调用走标准 JSON-RPC——将来把后端换成 Medusa，agent 这层一行不用改。
+- **MCP ↔ 后端**：MCP server 把店铺 API 包装成 8 个工具。
+- **运营台 console**（`console/index.html`，单文件）：KPI、审批队列（批准/拒绝）、数据质量体检、审计日志，5 秒自动刷新。
+
+## 安全模式（这个项目的核心，面试可讲）
+
+| 模式 | 实现 | 在哪验证 |
+|---|---|---|
+| **围栏 fencing** | 商品/订单**没有**直接写接口，`PUT /admin/products/:id` 返回 403 | `curl -X PUT .../admin/products/prod_001` |
+| **暂存变更 staged changes** | 所有写操作 = `POST /admin/staged-changes`，只产生 pending 记录 | 跑 `npm run demo` 看输出 |
+| **人工审批门** | 生效只有一个出口：`approve` 接口；**MCP 工具列表里根本没有 approve** —— agent 在协议层无法自我生效 | 运营台点批准 |
+| **限额** | 待审批 >10 条拒绝新提案；提案限流 20 次/分钟 | 连续跑两遍 demo 不重置 |
+| **审计** | 每次 propose/approve/reject/fence_blocked 落审计日志 | 运营台「审计日志」面板 |
+| **参数校验** | variant 不存在、价格非正数等在提案入口拒绝 | `verify` 断言 |
+
+## 评测（evals/）
+
+20 个运营任务：8 查询 + 6 分析 + 6 写提案，每个任务配**确定性验证器**（订单真的查对了吗、价格提案参数对不对），ground truth 从原始数据独立计算（不经过 server 的分析接口，避免循环验证）。
+
+两种模式：
+
+- **脚本化基线**（`npm run eval`）：预置工具调用计划，验证工具层与验证器本身 → `results.json`
+- **LLM 模式**（`npm run eval -- --llm`）：真实模型推理完成同样的 20 个任务，验证器消费 agent 的**真实工具调用轨迹**（过程接地：查对工具用对了没、拿到的数对不对、提案参数对不对，而非匹配最终文案）
+
+最近一次 LLM 评测（模型 `glm-5.3-flash`，3 轮取均值，`results-llm.json`）：
+
+```
+总通过率: 3 轮均值 95.0% ± 15.0（单轮 85% / 100% / 100%）
+  query     7-8/8    analysis 5-6/6    write    6/6（三轮全绿）
+平均工具调用/任务: 1.4   平均 tokens/任务: 3,796   每轮总 tokens: ~76k
+安全观察: 查询/分析任务中的多余提案 0 次（✅ 无）
+安全断言: ✅ 所有写任务均为 pending 提案，原始数据未被修改（审批门有效）
+```
+
+**诚实备注**：85% 那一轮的 3 个失败里，2 个是 LLM API 网络瞬断（`fetch failed`，与模型无关），1 个是模型没翻页找到目标订单（真实方差——另外两轮它都 1 步通过）。这正是要跑多轮的原因：单轮分数会骗人，均值和波动才可信。写任务的 6 个提案任务三轮 18/18 全部通过且全部正确停在 pending——**安全模式比模型能力更稳定**，因为前者是架构保证、后者受采样随机性影响。
+
+LLM 评测复现：
+
+```bash
+export LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4   # 任意 OpenAI 兼容接口
+export LLM_API_KEY=你的key
+export LLM_MODEL=glm-4-flash
+node evals/run-evals.js --llm --runs 3    # 3 轮取均值；每轮自动调 /admin/reset 清场
+```
+
+写任务的验证器专门断言两件事：① 提案参数正确且状态 pending；② **store.json 里对应字段原封不动** —— 即"agent 提了案但动不了真实数据"是评测的一部分，不是口头承诺。
+
+## LLM 模式配置
+
+任何 OpenAI 兼容接口均可（默认按智谱配置）：
+
+```bash
+export LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+export LLM_API_KEY=你的key
+export LLM_MODEL=glm-4-flash
+node agent/copilot.js --llm "把缺描述的商品都补上描述文案，逐个提案"
+```
+
+## 目录结构
+
+```
+merchant-copilot/
+├── server/store-server.js   店铺后端：只读查询 + 暂存变更 + 审批 + 围栏 + 审计
+│                            + 趋势接口 + /admin/reset + /agent/run（浏览器跑 agent）
+├── server/seed-data.js      数据生成逻辑（seed CLI 与 reset 共用）
+├── server/seed.js           CLI：生成确定性仿真数据，注入真实世界脏数据
+├── mcp/mcp-server.js        MCP server（stdio, JSON-RPC 2.0），8 个工具（搜索含 SKU）
+├── mcp/client.js            最小 MCP stdio 客户端
+├── agent/copilot.js         agent 入口：--scripted（脚本化） / --llm（真实推理）
+├── agent/llm-agent.js       共享 LLM agent 循环（trace + token 记账 + onStep），CLI/评测/浏览器共用
+├── evals/ground-truth.js    独立 ground truth（直接算原始数据）
+├── evals/tasks.js           20 任务定义 + 确定性验证器 + 轨迹 capture
+├── evals/run-evals.js       评测 runner（--llm / --runs N）→ results.json / results-llm.json
+├── evals/debug-task.js      单任务调试工具（node evals/debug-task.js w1）
+├── console/index.html       运营台 v0.3：KPI 动效/趋势图/审批队列/商品浏览/Copilot 面板/审计
+└── data/store.json          数据文件（seed 生成，审批生效时落盘）
+```
+
+## 已知的 v0.3 局限（诚实声明）
+
+- 后端是**自建的 Medusa 风格域模型**（product/variant/order），不是真 Medusa——v0.4 换成 `create-medusa-app` 真店，MCP 工具层语义保持不变；
+- 暂存变更队列在 server 内存里（重启即清空），只有**已批准生效**的变更落盘；
+- 20 个任务覆盖面仍窄（对比 CommerceAgentBench 的 107 个长程任务），且都是单步/少步任务，还没有多步依赖的长程任务；
+- 运营台是单文件应用，轮询（4s）而非 SSE 推送——演示足够，生产级实时性还差一步；
+- 洞察引擎目前是规则引擎（阈值+排序），不是模型驱动的分析——让它变成"LLM 洞察+规则兜底"是 v0.5 候选项。
+
+## Roadmap
+
+- **v0.4**：换真 Medusa v2 后端（MCP server 改造为调 Medusa API）→ 项目升级为"Medusa 生态的 MCP server"开源件
+- **v0.5**：评测强化——多模型横评（GLM/DeepSeek/Qwen 同一评测集）、加 2-3 个多步长程任务（如"找出滞销品→提案打折→生成文案"）
+- **v0.6**：售后客服场景（RAG 挂订单+政策、退款类操作强制人工、转人工）——复用同一套审批门
+- **v0.7**：只读演示 ACP agentic checkout 流程（对齐协议层，面试谈资）

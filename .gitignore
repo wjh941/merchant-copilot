@@ -1,0 +1,14 @@
+# 依赖与构建产物（本项目零依赖，防御性保留）
+node_modules/
+npm-debug.log*
+
+# 运行时生成（seed/sim 会重建）
+data/store.json
+data/runtime.json
+data/server.log
+data/sse-test.txt
+data/eval-*.log
+
+# 系统文件
+.DS_Store
+Thumbs.db
