@@ -11,8 +11,8 @@
 ## 30 秒跑起来
 
 ```bash
-node server/seed.js          # 1. 生成仿真数据（36 商品 / 136 订单 + 故意注入的脏数据）
-node server/store-server.js  # 2. 启动店铺后端（端口 4310）
+npm run -s seed              # 1. 生成仿真数据（36 商品 / 136 订单 + 故意注入的脏数据）
+npm run -s server            # 2. 启动店铺后端（端口 4310；真店模式加前缀 MEDUSA_URL=http://127.0.0.1:9000）
 ```
 
 浏览器打开 **http://127.0.0.1:4310/** —— 就是全部：
@@ -28,8 +28,8 @@ node server/store-server.js  # 2. 启动店铺后端（端口 4310）
 命令行方式（可选）：
 
 ```bash
-node agent/copilot.js --scripted all     # 脚本化演示（无需 LLM key）
-node agent/copilot.js --llm "最近7天卖了多少钱？缺点什么的商品列一下"   # 真实 LLM 模式（见下文配置）
+npm run -s demo                           # 脚本化演示（无需 LLM key）
+npm run -s copilot -- --llm "最近7天卖了多少钱？"          # 真实 LLM 模式（见下文配置）
 ```
 
 跑评测：
@@ -99,7 +99,7 @@ LLM 评测复现：
 export LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4   # 任意 OpenAI 兼容接口
 export LLM_API_KEY=你的key
 export LLM_MODEL=glm-4-flash
-node evals/run-evals.js --llm --runs 3    # 3 轮取均值；每轮自动关模拟+重置+放宽限额
+npm run -s eval -- --llm --runs 3    # 3 轮取均值；每轮自动关模拟+重置+放宽限额
 ```
 
 写任务的验证器专门断言两件事：① 提案参数正确且状态 pending；② **store.json 里对应字段原封不动** —— 即"agent 提了案但动不了真实数据"是评测的一部分，不是口头承诺。

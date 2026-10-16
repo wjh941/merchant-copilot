@@ -34,7 +34,7 @@ class McpClient {
       }
     });
     this.proc.stderr.setEncoding('utf8');
-    this.proc.stderr.on('data', d => process.stderr.write('[mcp-server] ' + d));
+    if (process.env.MCP_VERBOSE) this.proc.stderr.on('data', d => process.stderr.write('[mcp-server] ' + d));
     this.proc.on('exit', code => {
       for (const { reject } of this.pending.values()) reject(new Error('MCP server 退出, code=' + code));
       this.pending.clear();

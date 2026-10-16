@@ -14,7 +14,8 @@
     --radius: 12px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html { scrollbar-color: var(--line2) var(--bg); }
+  html { scrollbar-color: var(--line2) var(--bg); scroll-behavior: smooth; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
   body {
     background:
       radial-gradient(1200px 500px at 80% -10%, rgba(91,140,255,.07), transparent 60%),
@@ -24,12 +25,39 @@
     font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
     padding: 20px 24px 40px;
     min-height: 100vh;
+    animation: pageIn .45s cubic-bezier(.2,.7,.3,1);
   }
+  @keyframes pageIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 8px; }
 
+  /* 首屏 splash：品牌一瞬即隐 */
+  #splash {
+    position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); transition: opacity .5s ease, visibility .5s;
+  }
+  #splash.hide { opacity: 0; visibility: hidden; }
+  #splash .mark { font-size: 22px; font-weight: 700; letter-spacing: 1px; animation: splashPulse 1.2s ease infinite; }
+  #splash .mark b { background: linear-gradient(135deg, var(--accent), #9f6bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  @keyframes splashPulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+
+  /* 骨架屏 */
+  .skel { position: relative; overflow: hidden; background: var(--panel2); border-radius: 8px; }
+  .skel::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(139,148,168,.09), transparent);
+    animation: shimmer 1.4s infinite;
+  }
+  @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+  .skel-row { height: 14px; margin: 12px 4px; }
+
   /* ---------- header ---------- */
-  .header { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+  .header {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 18px;
+    padding: 10px 16px; margin: -20px -24px 18px;
+    background: rgba(19, 23, 34, .55); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid rgba(42, 47, 58, .6);
+  }
   .logo { font-size: 19px; font-weight: 700; letter-spacing: .3px; display: flex; align-items: center; gap: 9px; }
   .logo .store { background: linear-gradient(135deg, var(--accent), #9f6bff); -webkit-background-clip: text; background-clip: text; color: transparent; }
   .ver { font-size: 11px; color: var(--accent2); background: rgba(91,140,255,.12); border: 1px solid rgba(91,140,255,.3); padding: 2px 9px; border-radius: 20px; }
@@ -325,6 +353,7 @@
 </style>
 </head>
 <body>
+<div id="splash"><div class="mark">🏪 <b>店铺运营台</b></div></div>
 
 <div class="header">
   <div class="logo">🏪 <span class="store">店铺运营台</span></div>
@@ -343,7 +372,7 @@
 
 <div class="insights-wrap">
   <div class="insights-head">💡 Copilot 洞察建议 <span class="ins-sub" id="ins-sub">主动扫描经营数据，一键派给 agent 处理（批准前数据不会变）</span></div>
-  <div class="insights" id="insights"><div class="empty">加载中…</div></div>
+  <div class="insights" id="insights"><div class="ins-card info"><div class="skel skel-row" style="width:70%"></div><div class="skel skel-row" style="width:90%"></div></div></div>
 </div>
 
 <div class="cols">
@@ -357,7 +386,7 @@
   </div>
   <div class="panel">
     <h2>🩺 数据质量体检</h2>
-    <div id="dq"><div class="empty">加载中…</div></div>
+    <div id="dq"><div class="skel skel-row" style="width:80%"></div><div class="skel skel-row" style="width:65%"></div><div class="skel skel-row" style="width:72%"></div></div>
   </div>
 </div>
 
@@ -376,7 +405,7 @@
       <button class="chip" data-f="applied">已生效</button>
       <button class="chip" data-f="rejected">已拒绝</button>
     </div>
-    <div id="staged"><div class="empty">加载中…</div></div>
+    <div id="staged"><div class="skel" style="height:64px;margin-bottom:10px"></div><div class="skel" style="height:64px;opacity:.7"></div></div>
   </div>
   <div class="tabpanel" id="tab-products">
     <div class="prod-controls">
@@ -398,7 +427,7 @@
     <div class="cop-grid">
       <div>
         <h2 style="font-size:13px;color:var(--muted);margin-bottom:10px">🎯 预设任务（脚本模式 · 无需 API key）</h2>
-        <div id="presets"><div class="empty">加载中…</div></div>
+        <div id="presets"><div class="skel skel-row" style="width:90%"></div><div class="skel skel-row" style="width:70%"></div></div>
         <h2 style="font-size:13px;color:var(--muted);margin:14px 0 8px">✨ 自由任务 <span id="llm-state" style="font-weight:400;font-size:11px"></span></h2>
         <div class="run-box">
           <input class="input" id="task-input" placeholder="用自然语言给 Copilot 派活…" disabled>
@@ -690,13 +719,17 @@ async function toggleSim() {
 
 function updateSimBtn() {
   const b = $('btn-sim');
+  b.style.display = medusaMode ? 'none' : '';
   b.textContent = simOn ? '⏸ 暂停营业模拟' : '▶ 恢复营业模拟';
   b.classList.toggle('sim-on', simOn);
 }
 
+let medusaMode = false;
 async function loadSimState() {
-  const { ok, data } = await api('/admin/sim');
-  if (ok) { simOn = !!data.on; updateSimBtn(); }
+  const { ok, data } = await api('/admin/insights');
+  if (ok) { medusaMode = data.backend === 'medusa'; }
+  const r = await api('/admin/sim');
+  if (r.ok) { simOn = !!r.data.on; updateSimBtn(); }
 }
 
 // ---------- 竞品价格 ----------
@@ -1051,6 +1084,8 @@ connectSSE();
 (async function init() {
   await loadSimState();
   await refresh(true);
+  const sp = document.getElementById('splash');
+  if (sp) setTimeout(() => sp.classList.add('hide'), 250);
   setInterval(() => { if (visible && !sseOk) refresh(false); }, 4000);
   const [st, ps] = await Promise.all([api('/agent/status'), api('/agent/presets')]);
   if (st.ok) updateLlmState(st.data);

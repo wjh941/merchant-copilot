@@ -781,9 +781,13 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`店铺后端已启动: http://127.0.0.1:${PORT}  （运营台: http://127.0.0.1:${PORT}/ ）`);
-  console.log(`围栏: 商品/订单无直接写接口; 写路径仅 /admin/staged-changes (需人工审批)`);
-  console.log(`营业模拟: ${EXEC_MEDUSA ? '不可用（真店模式）' : sim.on ? '开启' : '关闭'}（tick ${sim.tickMs}ms，POST /admin/sim {on:false} 可关）`);
+  const { style } = require('../cli/ui');
+  const dim = (s) => process.stderr.isTTY ? '\x1b[2m' + s + '\x1b[0m' : s;
+  console.log('');
+  console.log('  ' + style.bold('◆ 店铺运营台后端') + '  ' + style.cyan('http://127.0.0.1:' + PORT));
+  console.log('  ' + dim(`运营台 ${'http://127.0.0.1:' + PORT + '/'}  ·  数据源 ${EXEC_MEDUSA ? '真店 Medusa' : '本地仿真'}  ·  模拟 ${EXEC_MEDUSA ? '停用' : sim.on ? '开' : '关'}`));
+  console.log('  ' + dim('写路径仅 /admin/staged-changes（人工审批）· MCP 服务由 agent 按需拉起'));
+  console.log('');
   if (sim.on && !EXEC_MEDUSA) setInterval(() => { if (sim.on) simTick(false); }, sim.tickMs);
   setInterval(() => { for (const res of sseClients) { try { res.write(': hb\n\n'); } catch { sseClients.delete(res); } } }, 25000);
 });

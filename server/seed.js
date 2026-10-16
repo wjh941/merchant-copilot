@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { buildSeed } = require('./seed-data');
+const { banner, style, kv } = require('../cli/ui');
 
 const db = buildSeed();
 const out = path.join(__dirname, '..', 'data', 'store.json');
@@ -14,6 +15,10 @@ const zeroPrice = db.products.flatMap(p => p.variants).filter(v => v.price <= 0)
 const lowStock = db.products.filter(p => p.status === 'published').flatMap(p => p.variants).filter(v => v.inventory < 10).length;
 const missingDesc = db.products.filter(p => p.status === 'published' && !p.description).length;
 
-console.log(`seed 完成: ${db.products.length} 个商品 / ${db.orders.length} 个订单`);
-console.log(`  注入脏数据: 缺描述 ${missingDesc} 个, 零价格变体 ${zeroPrice} 个, 低库存变体 ${lowStock} 个, 同名商品 1 对`);
-console.log(`  -> ${out}`);
+console.log(banner('仿真数据已就绪', '确定性种子 · 可复现'));
+console.log('');
+console.log(kv('商品', style.white(String(db.products.length)) + style.gray(' 个')));
+console.log(kv('订单', style.white(String(db.orders.length)) + style.gray(' 笔（近 30 天）')));
+console.log(kv('脏数据', style.amber(`缺描述 ${missingDesc}`) + style.gray(' · ') + style.amber(`零价格 ${zeroPrice}`) + style.gray(' · ') + style.amber(`低库存 ${lowStock}`) + style.gray(' · 同名商品 1 对')));
+console.log(kv('文件', style.gray(out.replace(/^D:\\/, 'D:\\'))));
+console.log('');

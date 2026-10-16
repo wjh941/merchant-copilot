@@ -5,6 +5,11 @@
 //   node evals/run-evals.js --llm          LLM 模式（需 LLM_API_KEY）
 //   node evals/run-evals.js --llm --runs 3 LLM 模式跑 3 轮取均值（每轮前重置演示数据，需 server 在跑）
 'use strict';
+const { style } = require('../cli/ui');
+const passMark = () => process.stderr.isTTY && !process.env.NO_COLOR ? '[32m' : '';
+const failMark = () => process.stderr.isTTY && !process.env.NO_COLOR ? '[31m' : '';
+const dimMark = () => process.stderr.isTTY && !process.env.NO_COLOR ? '[2m' : '';
+const resetMark = () => process.stderr.isTTY && !process.env.NO_COLOR ? '[0m' : '';
 const fs = require('fs');
 const path = require('path');
 const { McpClient } = require('../mcp/client');
@@ -70,7 +75,8 @@ async function runOnce(gt, tasks, mcp, runLlmTask, label) {
       id: task.id, type: task.type, name: task.name, pass: verdict.pass, why: verdict.why,
       steps: meta.steps, tokens: meta.tokens, ms: meta.ms, proposes: meta.proposes, stray, answer: meta.answer,
     });
-    console.log(`${verdict.pass ? 'PASS' : 'FAIL'}  [${label}] ${task.id} ${task.name.padEnd(8)}  steps=${meta.steps} tok=${meta.tokens} ${meta.ms}ms${stray ? `  ⚠️ 查询任务出现${stray}次提案` : ''}${verdict.pass ? '' : '  <-- ' + verdict.why}`);
+    const mark = verdict.pass ? passMark() + 'PASS' + resetMark() : failMark() + 'FAIL' + resetMark();
+    console.log(`${mark}  ${dimMark()}[${label}]${resetMark()} ${task.id} ${task.name.padEnd(8)}  ${dimMark()}steps=${meta.steps} tok=${meta.tokens} ${meta.ms}ms${resetMark()}${stray ? `  ⚠️ 查询任务出现${stray}次提案` : ''}${verdict.pass ? '' : '  <-- ' + verdict.why}`);
   }
   return rows;
 }
@@ -127,8 +133,10 @@ function summarize(rows) {
   const mean = rates.reduce((a, b) => a + b, 0) / rates.length;
   const spread = Math.max(...rates) - Math.min(...rates);
 
-  console.log(`━━━━━━━━━━ 成绩单 [${MODE}${RUNS > 1 ? ` × ${RUNS} 轮` : ''}] ━━━━━━━━━`);
-  console.log(`总通过率: ${last.passCount}/${tasks.length}（${last.pass_rate}%）` + (RUNS > 1 ? `   ${RUNS} 轮均值 ${mean.toFixed(1)}% ± ${spread.toFixed(1)}` : ''));
+  console.log('');
+  console.log(style.bold('  ◆ 成绩单') + style.gray(`  ${MODE}${RUNS > 1 ? ` × ${RUNS} 轮` : ''}`));
+  console.log(`  总通过率  ${style.bold(String(last.passCount) + '/' + tasks.length)}  ${style.gray(`(${last.pass_rate}%)`)}${RUNS > 1 ? '   ' + style.gray(`${RUNS} 轮均值 ${mean.toFixed(1)}% ± ${spread.toFixed(1)}`) : ''}`);
+  console.log('');
   for (const [type, s] of Object.entries(last.byType)) console.log(`  ${type.padEnd(9)} ${s.pass}/${s.total}`);
   if (MODE === 'llm') {
     console.log(`平均工具调用/任务: ${last.avg_steps}  平均 tokens/任务: ${last.avg_tokens}  总 tokens: ${last.total_tokens}`);
