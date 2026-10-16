@@ -163,10 +163,12 @@ Copilot Agent ──MCP──▶ 工具层(BACKEND=medusa: 读真店) ──prop
                                                             medusa.js 适配器 ──Admin API──▶ 真 Medusa 店铺(:9000)
 ```
 
-- **真店数据**：9 个商品 / 16 个变体 / 15 笔真实订单已灌入（`medusa-seed.js` + `medusa-orders-seed.js`，含 CNY region、双币价格、销售渠道↔库存位置关联）
-- **真数据分析已验证**：medusa 模式下 30 天营收 ¥7,873 / 15 单 / AOV ¥524.87、热卖榜、滞销清单、低库存全部来自真实 Medusa 数据
+- **真店数据**：9 个商品 / 16 个变体 / 15 笔真实订单（时间分布回填，趋势图有形）已灌入（`medusa-seed.js` + `medusa-orders-seed.js`，含 CNY region、双币价格、销售渠道↔库存位置关联）
+- **运营台直接显示真店数据**：以 `MEDUSA_URL` 启动网关后，看板 KPI / 趋势图 / 数据体检 / 洞察建议全部来自真实 Medusa（响应带 `backend: "medusa"`），营业模拟自动停用；不设该变量则整套看板跑仿真数据
+- **真数据实测**：medusa 模式下 30 天营收 ¥7,873 / 15 单 / AOV ¥524.87、热卖榜、滞销清单、低库存全部来自真实 Medusa 数据；真实 LLM 巡检任务轨迹见 `data/medusa-llm-demo.log`
 - **执行桥**：`MEDUSA_URL=... node server/store-server.js` 启动后，批准的动作（改价/改标题/补货）调用 Medusa Admin API 真实生效；执行失败变更保持 pending 可重试；不设该变量则执行到本地仿真（评测默认，保证确定性）
 - **读切换**：`BACKEND=medusa node agent/copilot.js --llm "..."` 时，agent 的搜索/详情/订单/分析/滞销工具全部吃真店数据
+- **冒烟测试**：`node evals/medusa-smoke.js` —— 9 项断言覆盖「读真店 → 提案 → 批准 → Medusa 独立复核 → 审计留痕」，全绿
 - 已验证的写路径：改价（prices 全量替换，双币）、补货（inventory-items → location-levels，需先建 stock location 并与销售渠道互链）、改标题/描述
 - 踩坑：建单报 "sales channel not associated with stock location" 时，除了渠道↔位置关联，还要检查**该变体在位置上是否有库存记录**（预留库存失败会报这个误导性错误）；草稿单转正式用 `/admin/draft-orders/:id/convert-to-order`
 

@@ -14,7 +14,30 @@ const medusa = require('./medusa');
 
 // 后端执行目标：设置 MEDUSA_URL 后，审批通过的动作会【真实执行到 Medusa 店铺】；
 // 未设置则执行到本地 JSON 仿真数据（默认，评测用）。
+// EXEC_MEDUSA 时运营台的读数据也来自真店（看板/洞察/分析全是真数据），营业模拟自动停用。
 const EXEC_MEDUSA = !!process.env.MEDUSA_URL;
+
+// ---------- 数据层：本地仿真 / 真 Medusa 双模式 ----------
+async function dataProducts() {
+  if (!EXEC_MEDUSA) return productsView();
+  return medusa.listProducts(200);
+}
+async function dataOrders(status, limit) {
+  if (!EXEC_MEDUSA) return ordersView(status, limit);
+  let orders = await medusa.listOrders(1000);
+  if (status) orders = orders.filter(o => o.status === status);
+  return orders.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))).slice(0, limit || 1000);
+}
+async function dataAnalytics(days) {
+  if (!EXEC_MEDUSA) return analyticsSummary(days);
+  const [products, orders] = await Promise.all([dataProducts(), dataOrders(null, 2000)]);
+  return medusa.summarize(products, orders, days);
+}
+async function dataTrend(days) {
+  if (!EXEC_MEDUSA) return revenueTrend(days);
+  const orders = await dataOrders(null, 2000);
+  return medusa.trendFromOrders(orders, days);
+}
 
 const DB_FILE = path.join(__dirname, '..', 'data', 'store.json');
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4310;
@@ -89,6 +112,7 @@ recomputeOrderSeq();
 const ri = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
 
 function simTick(force) {
+  if (EXEC_MEDUSA) return; // 真店模式：真实订单是真实的，不注入模拟订单
   const r = Math.random();
   const n = force ? ri(1, 3) : (r < 0.3 ? 0 : r < 0.72 ? 1 : r < 0.92 ? 2 : 3);
   if (!n) return;
@@ -148,37 +172,45 @@ recomputeOrderSeq();
 // 学习对象：Metabase/Grafana 的告警卡片、Bagisto 的低库存通知、商业产品 Triple Whale 的 insights feed。
 // 每条洞察 = 问题 + 量化依据 + 可直接派给 Copilot 的自然语言任务（task）+ 可选免 key 预设（preset_id）。
 function computeInsights() {
+  return (async () => {
   const now = Date.now();
   const out = [];
-  const ana = analyticsSummary(30);
+  const ana = await dataAnalytics(30);
+  const products = await dataProducts();
+  const orders = await dataOrders(2000);
 
-  // 1) 缺货流失（近 24h）—— 最紧急
-  const lost24 = (db.lost_events || []).filter(e => now - new Date(e.ts).getTime() < 864e5);
-  if (lost24.length) {
-    const skus = [...new Set(lost24.map(e => e.sku))];
-    out.push({
-      id: 'lost-sales', level: 'danger', icon: '🚨',
-      title: `近24h 因缺货流失 ${lost24.length} 个订单项`,
-      detail: `涉及 ${skus.slice(0, 3).join('、')}${skus.length > 3 ? ` 等 ${skus.length} 个 SKU` : ''}，补货后即恢复成交`,
-      task: `过去24小时有 ${lost24.length} 个订单项因缺货流失，涉及 SKU：${skus.join(', ')}。请给这些变体各补货到 80，逐个提案。`,
-      preset_id: 'w4',
-    });
+  // 1) 缺货流失（近 24h）—— 最紧急（仅仿真模式产生流失事件）
+  if (!EXEC_MEDUSA) {
+    const lost24 = (db.lost_events || []).filter(e => now - new Date(e.ts).getTime() < 864e5);
+    if (lost24.length) {
+      const skus = [...new Set(lost24.map(e => e.sku))];
+      out.push({
+        id: 'lost-sales', level: 'danger', icon: '🚨',
+        title: `近24h 因缺货流失 ${lost24.length} 个订单项`,
+        detail: `涉及 ${skus.slice(0, 3).join('、')}${skus.length > 3 ? ` 等 ${skus.length} 个 SKU` : ''}，补货后即恢复成交`,
+        task: `过去24小时有 ${lost24.length} 个订单项因缺货流失，涉及 SKU：${skus.join(', ')}。请给这些变体各补货到 80，逐个提案。`,
+        preset_id: 'w4',
+      });
+    }
   }
 
   // 2) 低库存售罄预测（近7天日销速度）
   const weekAgo = now - 7 * 864e5;
   const soldQty = {};
-  for (const o of db.orders) {
-    if (o.status !== 'completed' || new Date(o.created_at).getTime() < weekAgo) continue;
-    for (const it of o.items) soldQty[it.variant_id] = (soldQty[it.variant_id] || 0) + it.quantity;
+  for (const o of orders) {
+    if (o.status === 'cancelled' || new Date(o.created_at).getTime() < weekAgo) continue;
+    for (const it of (o.items || [])) {
+      if (it.variant_id) soldQty[it.variant_id] = (soldQty[it.variant_id] || 0) + (it.quantity || 1);
+    }
   }
   const risky = [];
-  for (const p of db.products) {
+  for (const p of products) {
     if (p.status !== 'published') continue;
     for (const v of p.variants) {
       if (v.inventory >= 10) continue;
       const vel = (soldQty[v.id] || 0) / 7;
       if (vel > 0 && v.inventory / vel < 5) risky.push({ p, v, vel });
+      else if (v.inventory <= 2) risky.push({ p, v, vel: vel || 0.1 });
     }
   }
   if (risky.length) {
@@ -186,7 +218,7 @@ function computeInsights() {
     out.push({
       id: 'low-stock', level: 'warn', icon: '📦',
       title: `${risky.length} 个低库存变体有售罄风险`,
-      detail: `最快「${x.p.title}」(${x.v.sku}) 日均售 ${x.vel.toFixed(1)} 件，仅剩 ${x.v.inventory} 件，预计 ${Math.max(1, Math.floor(x.v.inventory / x.vel))} 天售罄`,
+      detail: `最快「${x.p.title}」(${x.v.sku}) 仅剩 ${x.v.inventory} 件${x.vel > 0 ? `，日均售 ${x.vel.toFixed(1)} 件，预计 ${Math.max(1, Math.floor(x.v.inventory / x.vel))} 天售罄` : ''}`,
       task: '检查所有低库存变体，结合近7天销量给有售罄风险的补货到 50，逐个提案。',
       preset_id: 'w4',
     });
@@ -195,11 +227,11 @@ function computeInsights() {
   // 3) 滞销占压（14天零销量且库存>60）
   const twoWeeks = now - 14 * 864e5;
   const soldProducts = new Set();
-  for (const o of db.orders) {
-    if (o.status !== 'completed' || new Date(o.created_at).getTime() < twoWeeks) continue;
-    for (const it of o.items) soldProducts.add(it.product_id);
+  for (const o of orders) {
+    if (o.status === 'cancelled' || new Date(o.created_at).getTime() < twoWeeks) continue;
+    for (const it of (o.items || [])) if (it.product_id) soldProducts.add(it.product_id);
   }
-  const stale = db.products.filter(p => p.status === 'published' && !soldProducts.has(p.id) && p.variants.reduce((s, v) => s + v.inventory, 0) > 60);
+  const stale = products.filter(p => p.status === 'published' && !soldProducts.has(p.id) && p.variants.reduce((s, v) => s + v.inventory, 0) > 60);
   if (stale.length) {
     out.push({
       id: 'stale', level: 'info', icon: '🕸️',
@@ -210,7 +242,7 @@ function computeInsights() {
   }
 
   // 4) 营收异动（近3天 vs 之前3天，±25%）
-  const rev = days => db.orders.filter(o => o.status === 'completed' && new Date(o.created_at).getTime() >= now - days * 864e5).reduce((s, o) => s + o.total, 0);
+  const rev = ds => orders.filter(o => o.status !== 'cancelled' && new Date(o.created_at).getTime() >= now - ds * 864e5).reduce((s, o) => s + o.total, 0);
   const r3 = rev(3), p3 = rev(6) - rev(3);
   if (p3 > 100 && Math.abs(r3 - p3) / p3 > 0.25) {
     const pct = Math.round((r3 - p3) / p3 * 100);
@@ -243,7 +275,7 @@ function computeInsights() {
     });
   }
   const byTitle = {};
-  for (const p of db.products) if (p.status === 'published') (byTitle[p.title] = byTitle[p.title] || []).push(p);
+  for (const p of products) if (p.status === 'published') (byTitle[p.title] = byTitle[p.title] || []).push(p);
   const dups = Object.values(byTitle).filter(list => list.length >= 2);
   if (dups.length) {
     out.push({
@@ -257,6 +289,7 @@ function computeInsights() {
 
   const order = { danger: 0, warn: 1, info: 2 };
   return out.sort((a, b) => order[a.level] - order[b.level]);
+  })();
 }
 
 function audit(actor, event, detail) {
@@ -643,10 +676,10 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, orders: db.orders.length, lost_events: db.lost_events.length });
     }
     if (req.method === 'GET' && p === '/admin/insights') {
-      return json(res, 200, { insights: computeInsights(), sim_on: sim.on });
+      return json(res, 200, { insights: await computeInsights(), sim_on: sim.on, backend: EXEC_MEDUSA ? 'medusa' : 'local' });
     }
     if (req.method === 'GET' && p === '/admin/revenue-trend') {
-      return json(res, 200, { trend: revenueTrend(Number(url.searchParams.get('days')) || 30) });
+      return json(res, 200, { trend: await dataTrend(Number(url.searchParams.get('days')) || 30) });
     }
     if (p === '/agent/status') {
       return json(res, 200, { llm_available: llmAvailable(), model: process.env.LLM_MODEL || null, running: jobRunning });
@@ -671,12 +704,12 @@ const server = http.createServer(async (req, res) => {
 
     if (!p.startsWith('/admin/')) return json(res, 404, { error: 'not found' });
 
-    if (req.method === 'GET' && p === '/admin/products') return json(res, 200, { products: productsView() });
+    if (req.method === 'GET' && p === '/admin/products') return json(res, 200, { products: await dataProducts() });
     if (req.method === 'GET' && p === '/admin/orders') {
-      return json(res, 200, { orders: ordersView(url.searchParams.get('status') || undefined, Number(url.searchParams.get('limit')) || undefined) });
+      return json(res, 200, { orders: await dataOrders(url.searchParams.get('status') || undefined, Number(url.searchParams.get('limit')) || undefined) });
     }
     if (req.method === 'GET' && p === '/admin/analytics/summary') {
-      return json(res, 200, analyticsSummary(Number(url.searchParams.get('days')) || 30));
+      return json(res, 200, await dataAnalytics(Number(url.searchParams.get('days')) || 30));
     }
     if (req.method === 'GET' && p === '/admin/audit') return json(res, 200, { audit: auditLog.slice(-100).reverse() });
 
@@ -731,7 +764,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`店铺后端已启动: http://127.0.0.1:${PORT}  （运营台: http://127.0.0.1:${PORT}/ ）`);
   console.log(`围栏: 商品/订单无直接写接口; 写路径仅 /admin/staged-changes (需人工审批)`);
-  console.log(`营业模拟: ${sim.on ? '开启' : '关闭'}（tick ${sim.tickMs}ms，POST /admin/sim {on:false} 可关）`);
-  if (sim.on) setInterval(() => { if (sim.on) simTick(false); }, sim.tickMs);
+  console.log(`营业模拟: ${EXEC_MEDUSA ? '不可用（真店模式）' : sim.on ? '开启' : '关闭'}（tick ${sim.tickMs}ms，POST /admin/sim {on:false} 可关）`);
+  if (sim.on && !EXEC_MEDUSA) setInterval(() => { if (sim.on) simTick(false); }, sim.tickMs);
   setInterval(() => { for (const res of sseClients) { try { res.write(': hb\n\n'); } catch { sseClients.delete(res); } } }, 25000);
 });

@@ -113,58 +113,13 @@ async function api(pathname, init) {
   return data;
 }
 
-// 把"商品列表 + 订单"折算成 analytics 形状（medusa 模式用；mock 模式走服务端接口保持口径一致）
-function summarize(products, orders, days) {
-  const since = Date.now() - days * 864e5;
-  const recent = orders.filter(o => new Date(o.created_at).getTime() >= since);
-  // 营收口径 = 非取消订单（真店订单多为 pending：未收款但已是有效成交意向）
-  const effective = recent.filter(o => o.status !== 'cancelled');
-  const revenue = effective.reduce((s, o) => s + o.total, 0);
-  const byStatus = {};
-  for (const o of recent) byStatus[o.status] = (byStatus[o.status] || 0) + (o.total || 0);
-  const completed = recent.filter(o => o.status === 'completed' || o.status === 'order_placed');
-  const qty = {};
-  for (const o of effective) for (const it of (o.items || [])) {
-    const pid = it.product_id || (it.variant && it.variant.product_id);
-    if (pid) qty[pid] = (qty[pid] || 0) + (it.quantity || 1);
-  }
-  const topProducts = Object.entries(qty).map(([id, q]) => ({ product_id: id, title: (products.find(p => p.id === id) || {}).title || id, qty: q }))
-    .sort((a, b) => b.qty - a.qty).slice(0, 5);
-  const lowStock = [], zeroPrice = [], missingDescription = [];
-  for (const p of products) {
-    if (p.status !== 'published' && p.status !== 'active' && p.status !== 'published') continue;
-    if (p.status === 'published' && !p.description) missingDescription.push({ id: p.id, title: p.title });
-    for (const v of p.variants) {
-      if (v.inventory < 10) lowStock.push({ product: p.title, variant_id: v.id, sku: v.sku, inventory: v.inventory });
-      if (v.price <= 0) zeroPrice.push({ product: p.title, variant_id: v.id, sku: v.sku, price: v.price });
-    }
-  }
-    return {
-      period_days: days,
-      revenue: Math.round(revenue * 100) / 100,
-      order_count: recent.length,
-      completed_count: effective.length,
-      aov: effective.length ? Math.round(revenue / effective.length * 100) / 100 : 0,
-    revenue_by_status: byStatus,
-    top_products: topProducts,
-    data_quality: { low_stock: lowStock, zero_price_variants: zeroPrice, missing_description: missingDescription },
-  };
-}
-
 async function readProducts() {
   if (BACKEND === 'medusa') return medusa.listProducts(200);
   return (await api('/admin/products')).products;
 }
 
 async function readOrders(limit) {
-  if (BACKEND === 'medusa') {
-    const raw = await medusa.listOrders(limit || 200);
-    return raw.map(o => ({
-      id: o.id, display_id: o.display_id ? '#' + o.display_id : o.id, status: o.status,
-      items: (o.items || []).map(it => ({ product_id: it.product_id || it.variant_id, title: it.title, variant_id: it.variant_id, sku: it.sku, quantity: it.quantity, unit_price: (it.unit_price || 0) / 100 })),
-      total: (o.total || 0) / 100, currency: o.currency_code || 'usd', created_at: o.created_at,
-    }));
-  }
+  if (BACKEND === 'medusa') return medusa.listOrders(limit || 200); // 已映射（金额已转元）
   return (await api(`/admin/orders?status=&limit=${limit || 200}`)).orders;
 }
 
@@ -198,7 +153,7 @@ async function callTool(name, args) {
       const days = args.days || 30;
       if (BACKEND === 'medusa') {
         const [products, orders] = await Promise.all([readProducts(), readOrders(2000)]);
-        return summarize(products, orders, days);
+        return medusa.summarize(products, orders, days);
       }
       return api('/admin/analytics/summary?days=' + days);
     }

@@ -117,7 +117,22 @@ async function listProducts(limit = 100) {
 
 async function listOrders(limit = 200) {
   const data = await api('/admin/orders?limit=' + limit + '&order=-created_at');
-  return data.orders || [];
+  return (data.orders || []).map(o => ({
+    id: o.id,
+    display_id: o.display_id ? '#' + o.display_id : o.id,
+    status: o.status,
+    items: (o.items || []).map(it => ({
+      product_id: it.product_id || it.variant_id,
+      title: it.title,
+      variant_id: it.variant_id,
+      sku: it.sku,
+      quantity: it.quantity,
+      unit_price: (it.unit_price || 0) / 100,
+    })),
+    total: (o.total || 0) / 100,
+    currency: o.currency_code || 'usd',
+    created_at: o.created_at,
+  }));
 }
 
 // ---------- 写（审批门批准后执行）----------
@@ -160,6 +175,58 @@ async function restock(productId, variant, quantity) {
   });
 }
 
+// ---------- 经营分析（真店口径）：商品+订单 → analytics 形状 ----------
+// 营收口径 = 非取消订单（真店订单多为 pending：未收款但已是有效成交意向）
+function summarize(products, orders, days) {
+  const since = Date.now() - days * 864e5;
+  const recent = orders.filter(o => new Date(o.created_at).getTime() >= since);
+  const effective = recent.filter(o => o.status !== 'cancelled');
+  const revenue = effective.reduce((s, o) => s + o.total, 0);
+  const byStatus = {};
+  for (const o of recent) byStatus[o.status] = (byStatus[o.status] || 0) + (o.total || 0);
+  const qty = {};
+  for (const o of effective) for (const it of (o.items || [])) {
+    const pid = it.product_id;
+    if (pid) qty[pid] = (qty[pid] || 0) + (it.quantity || 1);
+  }
+  const topProducts = Object.entries(qty)
+    .map(([id, q]) => ({ product_id: id, title: (products.find(p => p.id === id) || {}).title || id, qty: q }))
+    .sort((a, b) => b.qty - a.qty).slice(0, 5);
+  const lowStock = [], zeroPrice = [], missingDescription = [];
+  for (const p of products) {
+    if (p.status === 'published' && !p.description) missingDescription.push({ id: p.id, title: p.title });
+    for (const v of p.variants) {
+      if (v.inventory < 10) lowStock.push({ product: p.title, variant_id: v.id, sku: v.sku, inventory: v.inventory });
+      if (v.price <= 0) zeroPrice.push({ product: p.title, variant_id: v.id, sku: v.sku, price: v.price });
+    }
+  }
+  return {
+    period_days: days,
+    revenue: Math.round(revenue * 100) / 100,
+    order_count: recent.length,
+    completed_count: effective.length,
+    aov: effective.length ? Math.round(revenue / effective.length * 100) / 100 : 0,
+    revenue_by_status: byStatus,
+    top_products: topProducts,
+    data_quality: { low_stock: lowStock, zero_price_variants: zeroPrice, missing_description: missingDescription },
+  };
+}
+
+// 近 N 天逐日营收/订单序列（趋势图数据源）
+function trendFromOrders(orders, days) {
+  const out = [];
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  for (let d = days - 1; d >= 0; d--) {
+    const start = dayStart.getTime() - d * 864e5;
+    const end = start + 864e5;
+    const dayOrders = orders.filter(o => { const t = new Date(o.created_at).getTime(); return t >= start && t < end; });
+    const revenue = dayOrders.filter(o => o.status !== 'cancelled').reduce((s, o) => s + o.total, 0);
+    out.push({ date: new Date(start).toISOString().slice(5, 10).replace('-', '/'), revenue: Math.round(revenue * 100) / 100, orders: dayOrders.length });
+  }
+  return out;
+}
+
 module.exports = {
   BASE,
   available: () => !!(process.env.MEDUSA_URL || process.env.MEDUSA_EMAIL),
@@ -171,4 +238,6 @@ module.exports = {
   updateVariantPrice,
   updateProduct,
   restock,
+  summarize,
+  trendFromOrders,
 };
