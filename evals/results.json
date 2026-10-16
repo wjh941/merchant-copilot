@@ -1,5 +1,5 @@
 {
- "run_at": "2026-10-16T04:47:31.500Z",
+ "run_at": "2026-10-16T06:27:56.253Z",
  "mode": "scripted",
  "model": null,
  "pass_rate": 100,
@@ -35,7 +35,7 @@
    "why": "计数 35 ≠ GT 35",
    "steps": 1,
    "tokens": 0,
-   "ms": 47,
+   "ms": 46,
    "proposes": 0,
    "stray": 0,
    "answer": ""
@@ -74,7 +74,7 @@
    "why": "全部断言通过",
    "steps": 1,
    "tokens": 0,
-   "ms": 7,
+   "ms": 5,
    "proposes": 0,
    "stray": 0,
    "answer": ""
@@ -87,7 +87,7 @@
    "why": "全部断言通过",
    "steps": 1,
    "tokens": 0,
-   "ms": 12,
+   "ms": 15,
    "proposes": 0,
    "stray": 0,
    "answer": ""
@@ -113,7 +113,7 @@
    "why": "数量不符",
    "steps": 1,
    "tokens": 0,
-   "ms": 16,
+   "ms": 15,
    "proposes": 0,
    "stray": 0,
    "answer": ""
@@ -126,7 +126,7 @@
    "why": "1 ≠ GT 1",
    "steps": 1,
    "tokens": 0,
-   "ms": 14,
+   "ms": 15,
    "proposes": 0,
    "stray": 0,
    "answer": ""
@@ -139,7 +139,7 @@
    "why": "8856 ≠ GT 8856",
    "steps": 1,
    "tokens": 0,
-   "ms": 1,
+   "ms": 14,
    "proposes": 0,
    "stray": 0,
    "answer": ""
@@ -191,7 +191,7 @@
    "why": "10693 ≠ GT 10693",
    "steps": 1,
    "tokens": 0,
-   "ms": 16,
+   "ms": 17,
    "proposes": 0,
    "stray": 0,
    "answer": ""
@@ -204,7 +204,7 @@
    "why": "136 ≠ GT 136",
    "steps": 1,
    "tokens": 0,
-   "ms": 15,
+   "ms": 13,
    "proposes": 0,
    "stray": 0,
    "answer": ""
@@ -217,7 +217,7 @@
    "why": "全部断言通过",
    "steps": 2,
    "tokens": 0,
-   "ms": 33,
+   "ms": 34,
    "proposes": 1,
    "stray": 0,
    "answer": ""
@@ -230,7 +230,7 @@
    "why": "全部断言通过",
    "steps": 2,
    "tokens": 0,
-   "ms": 29,
+   "ms": 27,
    "proposes": 1,
    "stray": 0,
    "answer": ""
@@ -243,7 +243,7 @@
    "why": "全部断言通过",
    "steps": 1,
    "tokens": 0,
-   "ms": 14,
+   "ms": 13,
    "proposes": 1,
    "stray": 0,
    "answer": ""
@@ -256,7 +256,7 @@
    "why": "全部断言通过",
    "steps": 2,
    "tokens": 0,
-   "ms": 15,
+   "ms": 31,
    "proposes": 1,
    "stray": 0,
    "answer": ""
@@ -269,7 +269,7 @@
    "why": "全部断言通过",
    "steps": 1,
    "tokens": 0,
-   "ms": 13,
+   "ms": 15,
    "proposes": 1,
    "stray": 0,
    "answer": ""
@@ -282,7 +282,7 @@
    "why": "全部断言通过",
    "steps": 3,
    "tokens": 0,
-   "ms": 44,
+   "ms": 45,
    "proposes": 2,
    "stray": 0,
    "answer": ""
@@ -295,7 +295,7 @@
    "why": "全部断言通过",
    "steps": 3,
    "tokens": 0,
-   "ms": 41,
+   "ms": 26,
    "proposes": 2,
    "stray": 0,
    "answer": ""
@@ -308,7 +308,7 @@
    "why": "全部断言通过",
    "steps": 4,
    "tokens": 0,
-   "ms": 46,
+   "ms": 44,
    "proposes": 3,
    "stray": 0,
    "answer": ""
@@ -321,7 +321,7 @@
    "why": "全部断言通过",
    "steps": 12,
    "tokens": 0,
-   "ms": 166,
+   "ms": 167,
    "proposes": 11,
    "stray": 0,
    "answer": ""

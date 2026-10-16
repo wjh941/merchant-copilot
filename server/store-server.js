@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const { buildSeed } = require('./seed-data');
 const medusa = require('./medusa');
+const market = require('./market-monitor');
 
 // 后端执行目标：设置 MEDUSA_URL 后，审批通过的动作会【真实执行到 Medusa 店铺】；
 // 未设置则执行到本地 JSON 仿真数据（默认，评测用）。
@@ -680,6 +681,24 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && p === '/admin/revenue-trend') {
       return json(res, 200, { trend: await dataTrend(Number(url.searchParams.get('days')) || 30) });
+    }
+
+    // ---------- 竞品价格监测与改价建议 ----------
+    if (p === '/admin/market/report') {
+      const [products, orders] = await Promise.all([dataProducts(), dataOrders(null, 2000)]);
+      return json(res, 200, await market.marketReport(products, orders, Number(url.searchParams.get('days')) || 30));
+    }
+    if (p === '/admin/market/apply-suggestion' && req.method === 'POST') {
+      // 把改价建议一键转成暂存变更（仍需人工批准——建议是引擎出的，生效权在人）
+      const body = await readBody(req);
+      const variant = String(body.variant_id || body.sku || '');
+      const price = Number(body.price);
+      if (!variant || !(price > 0)) return json(res, 400, { error: '需要 variant_id/sku 和正数 price' });
+      return createStagedChange(res, 'pricing-engine', {
+        action: 'update_variant_price',
+        params: { variant_id: variant, price },
+        reason: body.reason || `市场定价建议：${body.title || variant} 调整至 ¥${price}`,
+      });
     }
     if (p === '/agent/status') {
       return json(res, 200, { llm_available: llmAvailable(), model: process.env.LLM_MODEL || null, running: jobRunning });

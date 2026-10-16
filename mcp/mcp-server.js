@@ -59,6 +59,14 @@ const TOOLS = [
     },
   },
   {
+    name: 'get_market_prices',
+    description: '获取竞品价格监测：各商品本店价 vs 市场最低/均价/最高、价格位置、近7天销量趋势，以及引擎的改价建议（含预期销量/营收影响）。用于竞争性定价决策。',
+    inputSchema: {
+      type: 'object',
+      properties: { days: { type: 'number', description: '历史区间天数，默认 30' } },
+    },
+  },
+  {
     name: 'get_staged_changes',
     description: '查看当前暂存变更队列（agent 提出的、等待人工审批的变更）。',
     inputSchema: { type: 'object', properties: {} },
@@ -177,6 +185,14 @@ async function callTool(name, args) {
         .filter(p => p.total_inventory > minInv)
         .map(p => ({ id: p.id, title: p.title, category: p.category, total_inventory: p.total_inventory,
           variants: p.variants.map(v => ({ id: v.id, sku: v.sku, price: v.price, inventory: v.inventory })) }));
+    }
+    case 'get_market_prices': {
+      const [products, orders] = await Promise.all([readProducts(), readOrders(2000)]);
+      const days = args.days || 30;
+      const report = await require('../server/market-monitor').marketReport(products, orders, days);
+      return { summary: report.summary, competitors: report.competitors,
+        rows: report.rows.map(r => ({ title: r.title, sku: r.sku, our_price: r.our_price, market_min: r.market_min, market_avg: r.market_avg, market_max: r.market_max, position_pct: r.position_pct, units_30d: r.units_30d, trend: r.trend })),
+        suggestions: report.suggestions };
     }
     case 'get_staged_changes':
       return (await api('/admin/staged-changes')).staged_changes;

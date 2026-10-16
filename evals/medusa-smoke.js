@@ -29,7 +29,7 @@ function check(name, cond, detail) {
 
   const mcp = new McpClient();
   const tools = await mcp.init();
-  check('MCP 工具加载（9 个）', tools.length === 9, '实际 ' + tools.length);
+  check('MCP 工具加载（10 个）', tools.length === 10, '实际 ' + tools.length);
 
   // 1. 读真店
   const found = await mcp.callTool('search_products', {});

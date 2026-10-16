@@ -169,6 +169,7 @@ Copilot Agent ──MCP──▶ 工具层(BACKEND=medusa: 读真店) ──prop
 - **执行桥**：`MEDUSA_URL=... node server/store-server.js` 启动后，批准的动作（改价/改标题/补货）调用 Medusa Admin API 真实生效；执行失败变更保持 pending 可重试；不设该变量则执行到本地仿真（评测默认，保证确定性）
 - **读切换**：`BACKEND=medusa node agent/copilot.js --llm "..."` 时，agent 的搜索/详情/订单/分析/滞销工具全部吃真店数据
 - **冒烟测试**：`node evals/medusa-smoke.js` —— 9 项断言覆盖「读真店 → 提案 → 批准 → Medusa 独立复核 → 审计留痕」，全绿
+- **竞品价格监测（v0.4.3）**：`💹 竞品价格` Tab + `get_market_prices` MCP 工具。每商品对比 3 家竞店的 30 天价格带（区间条+本店价标记+多线走势图），建议引擎按「价格位置 × 销量趋势 × 弹性 1.5」生成改价建议并测算预期销量/营收影响——且与弹性模型自洽（提价只在需求上行时建议；低价+需求平淡 → 诚实建议"先做流量再议价"）。一键"按建议生成提案"仍走审批门。数据源为适配器架构：内置仿真监测器（确定性随机游走），真实比价数据源经 `recordObservation` 接入
 - 已验证的写路径：改价（prices 全量替换，双币）、补货（inventory-items → location-levels，需先建 stock location 并与销售渠道互链）、改标题/描述
 - 踩坑：建单报 "sales channel not associated with stock location" 时，除了渠道↔位置关联，还要检查**该变体在位置上是否有库存记录**（预留库存失败会报这个误导性错误）；草稿单转正式用 `/admin/draft-orders/:id/convert-to-order`
 
