@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: 语法检查（全部 JS 源文件）
+        run: |
+          find server agent mcp evals cli -name "*.js" -print0 2>/dev/null | xargs -0 -n1 node --check
+      - name: 生成演示数据
+        run: node server/seed.js
+      - name: 启动店铺后端并冒烟
+        run: |
+          node server/store-server.js &
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4310/ || true)
+            [ "$code" = "200" ] && break
+            sleep 1
+          done
+          [ "$code" = "200" ] || { echo "server did not start"; exit 1; }
+      - name: 确定性评测（23 任务 + 审批门安全断言）
+        run: node evals/run-evals.js
