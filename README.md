@@ -1,10 +1,30 @@
 # 店铺运营 Copilot（merchant-copilot）v0.3
 
+<div align="center">
+
+**带人工审批门的电商运营 Agent · MCP 工具层 · 确定性评测集 · 零 npm 依赖**
+
+[![Node](https://img.shields.io/badge/Node-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![零依赖](https://img.shields.io/badge/npm_依赖-0-brightgreen)](package.json)
+[![MCP](https://img.shields.io/badge/工具层-MCP-7c3aed)](#架构)
+
+![运营台](docs/images/dashboard.png)
+
+</div>
+
 一个带**人工审批门**的电商运营 agent 最小可行版：agent 能查数据、能分析经营、能提案改价/补货/修数据，但**任何写操作都必须店主在运营台点批准才生效**。带确定性评测集 + 真实 LLM 评测（通过率/token 成本/双模型横评），**全套可在浏览器里实时演示**——数据在动、Copilot 在建议、审批有后果，一个页面走完。
 
 对标 [anthropics/commerce-agents](https://github.com/anthropics/commerce-agents) 的 merchant-agent 安全模式，区别在于：Anthropic 的是虚构公司参考蓝图，本项目跑在**真实可运行的后端**上，且带一套**确定性评测集**。
 
 **零 npm 依赖** —— 只需要 Node 18+（内置 fetch / http / child_process）。
+
+## 🖼️ 界面预览
+
+**运营台首页** —— KPI 环比、30 天趋势（canvas 手绘悬停 tooltip）、Copilot 主动扫描的洞察建议卡（每张带量化依据 + 一键派活）、数据质量体检、审批队列：
+
+![店铺运营台](docs/images/dashboard.png)
+
+> 截图为实时演示态：营业模拟每 12 秒产生新订单并真实扣减库存，洞察卡在人工批准前不会消失。
 
 ---
 
