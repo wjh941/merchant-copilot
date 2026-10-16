@@ -797,7 +797,7 @@ async function refresh(force) {
     if ($('tab-audit').classList.contains('on')) tasks.push(api('/admin/audit'));
     const [ana, tr, st, pr, ins, au] = await Promise.all(tasks);
     if (!ana.ok) throw new Error('server 不可达');
-    $('live').classList.remove('down'); $('live-text').textContent = '已连接';
+    $('live').classList.remove('down'); $('live-text').textContent = sseOk ? '实时推送' : '已连接';
 
     const newTrend = tr.data.trend || [];
     const changed = !trend.length || JSON.stringify(newTrend) !== JSON.stringify(trend);
@@ -814,8 +814,9 @@ async function refresh(force) {
     if (stagedChanged || force) renderQueue();
     if (prodChanged || force) { fillCatFilter(); renderProducts(); }
     if (ins.ok) {
+      if (ins.data.sim_on !== simOn) { simOn = ins.data.sim_on; updateSimBtn(); }
       const newList = ins.data.insights || [];
-      const insChanged = JSON.stringify(newList) !== JSON.stringify(insights) || ins.data.sim_on !== simOn;
+      const insChanged = JSON.stringify(newList) !== JSON.stringify(insights);
       if (insChanged || force) {
         insights = newList;
         for (const c of insights) insTasks[c.id] = c.task;

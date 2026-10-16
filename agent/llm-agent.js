@@ -42,20 +42,29 @@ async function runLlmTask(opts) {
   let answer = null;
 
   for (let i = 0; i < maxSteps; i++) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 90000);
-    let res;
-    try {
-      res = await fetch(base.replace(/\/$/, '') + '/chat/completions', {
-        method: 'POST',
-        signal: ctrl.signal,
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
-        body: JSON.stringify({ model, messages, tools: openaiTools, temperature: 0.1 }),
-      });
-    } finally { clearTimeout(timer); }
+    // 5xx/网络抖动退避重试：区分"模型失败"与"供应商抖动"，评测数据才可信
+    let data = null;
+    let lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 90000);
+      try {
+        const res = await fetch(base.replace(/\/$/, '') + '/chat/completions', {
+          method: 'POST',
+          signal: ctrl.signal,
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+          body: JSON.stringify({ model, messages, tools: openaiTools, temperature: 0.1 }),
+        });
+        if (res.ok) { data = await res.json(); break; }
+        lastErr = new Error(`LLM HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        if (res.status < 500 && res.status !== 429) break; // 4xx（参数/鉴权错）不重试
+      } catch (e) {
+        lastErr = e;
+      } finally { clearTimeout(timer); }
+      if (attempt < 2) await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+    }
+    if (!data) throw lastErr || new Error('LLM 请求失败');
 
-    if (!res.ok) throw new Error(`LLM HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    const data = await res.json();
     const msg = data.choices[0].message;
     if (data.usage) {
       usage.prompt_tokens += data.usage.prompt_tokens || 0;

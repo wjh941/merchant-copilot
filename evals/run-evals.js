@@ -17,8 +17,14 @@ const STORE = process.env.STORE_URL || 'http://127.0.0.1:4310';
 
 async function resetServer() {
   try {
-    // 先关营业模拟（保证 ground truth 确定），放宽限额（长程任务单轮会提 20+ 个案），再重置数据
-    await fetch(STORE + '/admin/sim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: false }) }).catch(() => {});
+    // 先关营业模拟（保证 ground truth 确定），放宽限额（长程任务单轮会提 20+ 个案），再重置数据。
+    // 关模拟后必须【验证】确实关了——浏览器里开着的运营台可能把模拟重新打开（真实的测试污染源）。
+    for (let i = 0; i < 3; i++) {
+      await fetch(STORE + '/admin/sim', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: false }) }).catch(() => {});
+      await new Promise(r => setTimeout(r, 300));
+      const chk = await fetch(STORE + '/admin/sim').then(r => r.json()).catch(() => null);
+      if (chk && chk.on === false) break;
+    }
     await fetch(STORE + '/admin/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ max_pending: 200, rate_per_min: 600 }) }).catch(() => {});
     const res = await fetch(STORE + '/admin/reset', { method: 'POST' });
     return res.ok;
