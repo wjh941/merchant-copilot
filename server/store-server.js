@@ -500,6 +500,21 @@ async function createStagedChange(res, actor, body) {
   });
 }
 
+// ---------- 任务集：按后端模式提供预设（mock 种子任务 / 真店快照动态任务）----------
+async function getTaskSet(taskId) {
+  if (EXEC_MEDUSA) {
+    const { buildMedusaTasks } = require('../evals/tasks-medusa');
+    const [products, orders] = await Promise.all([dataProducts(), dataOrders(null, 2000)]);
+    const analytics = medusa.summarize(products, orders, 30);
+    const tasks = buildMedusaTasks({ products, orders, analytics });
+    return { task: tasks.find(t => t.id === taskId), tasks, ctx: { results: {} } };
+  }
+  const { buildTasks } = require('../evals/tasks');
+  const { computeGroundTruth } = require('../evals/ground-truth');
+  const tasks = buildTasks(computeGroundTruth());
+  return { task: tasks.find(t => t.id === taskId), tasks, ctx: { results: {} } };
+}
+
 // ---------- 浏览器端 Agent 运行器（异步任务 + 轨迹实时可见）----------
 // LLM 模式需要 server 启动时带 LLM_API_KEY 环境变量；脚本模式永远可用。
 const agentJobs = new Map();
@@ -516,13 +531,10 @@ async function runJob(job) {
   try {
     await mcp.init();
     if (job.task_id) {
-      // 脚本化预设任务（无需 LLM key）
-      const { buildTasks } = require('../evals/tasks');
-      const { computeGroundTruth } = require('../evals/ground-truth');
-      const task = buildTasks(computeGroundTruth()).find(t => t.id === job.task_id);
+      // 脚本化预设任务（无需 LLM key）——任务集跟随后端模式（mock 种子 / 真店快照）
+      const { task, ctx } = await getTaskSet(job.task_id);
       if (!task) throw new Error('预设任务不存在: ' + job.task_id);
       job.task_text = task.instruction;
-      const ctx = { results: {} };
       for (const step of task.steps) {
         const args = typeof step.args === 'function' ? step.args(ctx) : step.args;
         const result = await mcp.callTool(step.tool, args);
@@ -530,7 +542,7 @@ async function runJob(job) {
         job.steps.push({ tool: step.tool, args, ok: true });
         if (step.tool.startsWith('propose_')) job.proposals++;
       }
-      job.answer = task.answer(ctx);
+      try { job.answer = task.answer(ctx); } catch { job.answer = `已完成 ${task.name}（${job.proposals} 条提案待审批）`; }
     } else {
       const { runLlmTask } = require('../agent/llm-agent');
       const r = await runLlmTask({
@@ -701,14 +713,12 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (p === '/agent/status') {
-      return json(res, 200, { llm_available: llmAvailable(), model: process.env.LLM_MODEL || null, running: jobRunning });
+      return json(res, 200, { llm_available: llmAvailable(), model: process.env.LLM_MODEL || null, running: jobRunning, backend: EXEC_MEDUSA ? 'medusa' : 'mock' });
     }
     if (p === '/agent/presets') {
-      const { buildTasks } = require('../evals/tasks');
-      const { computeGroundTruth } = require('../evals/ground-truth');
-      const presets = buildTasks(computeGroundTruth())
-        .map(t => ({ id: t.id, type: t.type, name: t.name, instruction: t.instruction }));
-      return json(res, 200, { presets });
+      const { tasks } = await getTaskSet();
+      const presets = tasks.map(t => ({ id: t.id, type: t.type, name: t.name, instruction: t.instruction }));
+      return json(res, 200, { presets, backend: EXEC_MEDUSA ? 'medusa' : 'mock' });
     }
     if (p === '/agent/run' && req.method === 'POST') {
       const body = await readBody(req);

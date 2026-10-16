@@ -2,6 +2,11 @@
 // 尊重 NO_COLOR 与非 TTY 环境（管道/CI 时自动降级为纯文本，评测日志不受污染）。
 'use strict';
 
+// Windows 控制台默认 GBK(936) 代码页会把 UTF-8 中文/框线渲染成乱码——入口统一切到 UTF-8(65001)。
+if (process.platform === 'win32' && (process.stdout.isTTY || process.stderr.isTTY)) {
+  try { require('child_process').execSync('chcp 65001', { stdio: 'ignore', windowsHide: true }); } catch {}
+}
+
 const isTTY = process.stderr.isTTY && !process.env.NO_COLOR;
 const code = (n) => isTTY ? `\x1b[${n}m` : '';
 

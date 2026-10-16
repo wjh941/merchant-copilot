@@ -426,7 +426,7 @@
   <div class="tabpanel" id="tab-agent">
     <div class="cop-grid">
       <div>
-        <h2 style="font-size:13px;color:var(--muted);margin-bottom:10px">🎯 预设任务（脚本模式 · 无需 API key）</h2>
+        <h2 style="font-size:13px;color:var(--muted);margin-bottom:10px" id="presets-title">🎯 预设任务</h2>
         <div id="presets"><div class="skel skel-row" style="width:90%"></div><div class="skel skel-row" style="width:70%"></div></div>
         <h2 style="font-size:13px;color:var(--muted);margin:14px 0 8px">✨ 自由任务 <span id="llm-state" style="font-weight:400;font-size:11px"></span></h2>
         <div class="run-box">
@@ -899,6 +899,8 @@ function renderPresets() {
 
 function updateLlmState(s) {
   llmOk = s.llm_available;
+  const pt = $('presets-title');
+  if (pt) pt.textContent = s.backend === 'medusa' ? '🎯 预设任务（真店快照 · 无需 API key）' : '🎯 预设任务（仿真数据 · 无需 API key）';
   $('task-input').disabled = !llmOk;
   $('btn-run').disabled = !llmOk;
   $('llm-state').innerHTML = llmOk
