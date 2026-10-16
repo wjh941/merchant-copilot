@@ -475,6 +475,14 @@ async function createStagedChange(res, actor, body) {
 
   const action = ACTIONS[body.action];
   if (!action) return json(res, 400, { error: '未知 action: ' + body.action + '，可用: ' + Object.keys(ACTIONS).join(', ') });
+
+  // 编码防护：拦截 GBK/错误编码产生的乱码字符串（含 U+FFFD 替换符），避免污染看板与审计
+  const strings = [body.reason, ...(body.params ? Object.values(body.params) : [])].filter(x => typeof x === 'string');
+  if (strings.some(s => s.includes('\uFFFD'))) {
+    audit(actor, 'propose_rejected', { action: body.action, reason: '编码异常（非 UTF-8）' });
+    return json(res, 400, { error: '参数含非法编码字符（可能是终端 GBK 编码发送）。请用 UTF-8，或改用运营台/预设任务操作。' });
+  }
+
   const err = action.validate(body.params || {});
   if (err) {
     audit(actor, 'propose_rejected', { action: body.action, reason: err });
