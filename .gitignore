@@ -4,6 +4,7 @@ npm-debug.log*
 
 # 运行时生成（seed/sim 会重建）
 data/store.json
+data/market.json
 data/runtime.json
 data/server.log
 data/sse-test.txt
