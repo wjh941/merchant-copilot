@@ -1,7 +1,8 @@
-name: ci
+name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -9,16 +10,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [18, 20]
+        node: [18, 20, 22]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+      - name: 单元测试（核心纯函数 6 项）
+        run: npm test
       - name: 语法检查（全部 JS 源文件）
         run: |
-          find server agent mcp evals cli -name "*.js" -print0 2>/dev/null | xargs -0 -n1 node --check
+          find server agent mcp evals cli test -name "*.js" -print0 2>/dev/null | xargs -0 -n1 node --check
       - name: 生成演示数据
         run: node server/seed.js
       - name: 启动店铺后端并冒烟

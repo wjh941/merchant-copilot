@@ -15,7 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const medusa = require('./medusa');
 
-const MARKET_FILE = path.join(__dirname, '..', 'data', 'market.json');
+const MARKET_FILE = process.env.MARKET_FILE || path.join(__dirname, '..', 'data', 'market.json');
 const COMPETITORS = ['友商·快时尚 A', '友商·品牌折扣 B', '友商·工厂店 C'];
 const ELASTICITY = 1.5;
 
@@ -23,7 +23,7 @@ const ELASTICITY = 1.5;
 function anchorFactor(title) {
   let h = 0;
   for (const c of title) h = (h * 31 + c.charCodeAt(0)) % 100000;
-  return 0.82 + (h % 37) / 100; // 0.82 ~ 1.18
+  return 0.8 + (h % 41) / 100; // 0.80 ~ 1.20
 }
 
 function loadMarket() {

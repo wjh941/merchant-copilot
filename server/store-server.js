@@ -42,6 +42,7 @@ async function dataTrend(days) {
 
 const DB_FILE = path.join(__dirname, '..', 'data', 'store.json');
 const PORT = process.env.PORT ? Number(process.env.PORT) : 4310;
+const HOST = process.env.HOST || '127.0.0.1'; // 安全默认：只监听本机，不暴露局域网（需要局域网访问时设 HOST=0.0.0.0）
 const MAX_PENDING = Number(process.env.MAX_PENDING) || 10;          // 评测时可临时放宽
 const RATE_PER_MIN = Number(process.env.RATE_PER_MIN) || 20;
 
@@ -295,6 +296,7 @@ function computeInsights() {
 
 function audit(actor, event, detail) {
   auditLog.push({ ts: new Date().toISOString(), actor, event, detail });
+  if (auditLog.length > 2000) auditLog.splice(0, auditLog.length - 2000); // 内存上限，防长会话膨胀
   persistRuntime();
 }
 
@@ -798,7 +800,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   const { style } = require('../cli/ui');
   const dim = (s) => process.stderr.isTTY ? '\x1b[2m' + s + '\x1b[0m' : s;
   console.log('');

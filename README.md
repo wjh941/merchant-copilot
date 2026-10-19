@@ -1,4 +1,9 @@
-# 店铺运营 Copilot（merchant-copilot）v0.3
+# 店铺运营 Copilot（merchant-copilot）v1.0
+
+![CI](https://github.com/wjh941/merchant-copilot/actions/workflows/ci.yml/badge.svg)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+![Node](https://img.shields.io/badge/node-%E2%89%A518-green)
+![零依赖](https://img.shields.io/badge/runtime%20deps-0-success)
 
 <div align="center">
 
@@ -7,6 +12,7 @@
 [![Node](https://img.shields.io/badge/Node-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org)
 [![零依赖](https://img.shields.io/badge/npm_依赖-0-brightgreen)](package.json)
 [![MCP](https://img.shields.io/badge/工具层-MCP-7c3aed)](#架构)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ![运营台](docs/images/dashboard.png)
 
@@ -18,15 +24,13 @@
 
 **零 npm 依赖** —— 只需要 Node 18+（内置 fetch / http / child_process）。
 
-## 🖼️ 界面预览
+> 💡 上方截图为实时演示态：营业模拟每 12 秒产生新订单并真实扣减库存，洞察卡在人工批准前不会消失；真店模式（`MEDUSA_URL`）下看板数据则全部来自 Medusa。
 
-**运营台首页** —— KPI 环比、30 天趋势（canvas 手绘悬停 tooltip）、Copilot 主动扫描的洞察建议卡（每张带量化依据 + 一键派活）、数据质量体检、审批队列：
-
-![店铺运营台](docs/images/dashboard.png)
-
-> 截图为实时演示态：营业模拟每 12 秒产生新订单并真实扣减库存，洞察卡在人工批准前不会消失。
+> 🔒 安全默认：服务只监听 `127.0.0.1`（本机），不会暴露到局域网。需要局域网访问时显式设置 `HOST=0.0.0.0`。
 
 ---
+
+![竞品价格](docs/market.png)
 
 ## 30 秒跑起来
 
