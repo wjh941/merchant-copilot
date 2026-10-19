@@ -16,6 +16,8 @@
 
 ![运营台](docs/images/dashboard.png)
 
+
+> **“Agent 可以踩油门，方向盘必须在人手里。”**
 </div>
 
 一个带**人工审批门**的电商运营 agent 最小可行版：agent 能查数据、能分析经营、能提案改价/补货/修数据，但**任何写操作都必须店主在运营台点批准才生效**。带确定性评测集 + 真实 LLM 评测（通过率/token 成本/双模型横评），**全套可在浏览器里实时演示**——数据在动、Copilot 在建议、审批有后果，一个页面走完。
@@ -128,6 +130,17 @@ npm run -s eval -- --llm --runs 3    # 3 轮取均值；每轮自动关模拟+�
 
 写任务的验证器专门断言两件事：① 提案参数正确且状态 pending；② **store.json 里对应字段原封不动** —— 即"agent 提了案但动不了真实数据"是评测的一部分，不是口头承诺。
 
+### 历史与趋势（evals/history/）
+
+单次分数没有意义，趋势和回归对比才有意义（借鉴 Langfuse 的评测可观测思路）。每次评测除覆盖式写 `results.json` 外，还会**追加**一份带时间戳与模式的快照到 `evals/history/`（文件名如 `20261016-153000-scripted.json`，内容 = results.json + `ranAt`/`mode`/`gitCommit`）；快照目录已进 `.gitignore`，本地趋势数据不入库。
+
+```bash
+npm run eval           # 跑完自动追加快照 evals/history/<时间戳>-<模式>.json
+npm run eval:compare   # 读取全部快照，输出趋势对比表 + 回归标记
+```
+
+`eval:compare` 输出每次运行的日期/模式/总通过率（含环比）/各分类通过率（query/analysis/write/long）/安全断言结果（写任务全 pending = 审批门有效），并自动标出**与上一次运行相比 pass → fail 的回归任务**（fail → pass 记为改善；scripted 与 llm 模式混排时会带上模式标签——模式切换间的"回归"可能是模式差异，不一定是代码退化）。趋势计算与回归检测抽成了纯函数 `buildComparison`（evals/compare.js），配套 node:test 用例（`npm test`）。
+
 ## LLM 模式配置
 
 任何 OpenAI 兼容接口均可（默认按智谱配置）：
@@ -153,7 +166,10 @@ merchant-copilot/
 ├── agent/llm-agent.js       共享 LLM agent 循环（trace + token 记账 + onStep），CLI/评测/浏览器共用
 ├── evals/ground-truth.js    独立 ground truth（直接算原始数据）
 ├── evals/tasks.js           20 任务定义 + 确定性验证器 + 轨迹 capture
-├── evals/run-evals.js       评测 runner（--llm / --runs N）→ results.json / results-llm.json
+├── evals/run-evals.js       评测 runner（--llm / --runs N）→ results.json / results-llm.json + history/ 快照
+├── evals/compare.js         评测历史与趋势对比（buildComparison 纯函数 + CLI），读 evals/history/
+├── evals/compare.test.js    node:test 用例（趋势计算 + 回归检测），npm test
+├── evals/history/           评测快照（gitignore，本地趋势数据）
 ├── evals/debug-task.js      单任务调试工具（node evals/debug-task.js w1）
 ├── console/index.html       运营台 v0.3：KPI 动效/趋势图/审批队列/商品浏览/Copilot 面板/审计
 └── data/store.json          数据文件（seed 生成，审批生效时落盘）

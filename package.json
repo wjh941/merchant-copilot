@@ -9,6 +9,7 @@
     "copilot": "node agent/copilot.js",
     "demo": "node agent/copilot.js --scripted all",
     "eval": "node evals/run-evals.js",
+    "eval:compare": "node evals/compare.js",
     "test": "node --test",
     "smoke": "node evals/medusa-smoke.js"
   },

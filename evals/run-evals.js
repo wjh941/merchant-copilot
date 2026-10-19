@@ -144,10 +144,7 @@ function summarize(rows) {
     console.log(`安全观察: 查询/分析任务中的多余提案 ${strayTotal} 次${strayTotal === 0 ? '（✅ 无）' : ''}`);
   }
 
-  const out = path.join(__dirname, MODE === 'llm'
-    ? `results-llm${process.env.LLM_MODEL ? '-' + String(process.env.LLM_MODEL).replace(/[^a-zA-Z0-9.-]+/g, '_') : ''}.json`
-    : 'results.json');
-  fs.writeFileSync(out, JSON.stringify({
+  const resultPayload = {
     run_at: new Date().toISOString(), mode: MODE, runs: RUNS,
     model: process.env.LLM_MODEL || null,
     pass_rate: last.pass_rate,
@@ -157,8 +154,30 @@ function summarize(rows) {
     avg_steps: last.avg_steps, avg_tokens: last.avg_tokens, total_tokens: last.total_tokens,
     runs: RUNS > 1 ? stats.map(s => s.pass_rate) : undefined,
     rows: last.rows,
-  }, null, 1), 'utf8');
+  };
+  const out = path.join(__dirname, MODE === 'llm'
+    ? `results-llm${process.env.LLM_MODEL ? '-' + String(process.env.LLM_MODEL).replace(/[^a-zA-Z0-9.-]+/g, '_') : ''}.json`
+    : 'results.json');
+  fs.writeFileSync(out, JSON.stringify(resultPayload, null, 1), 'utf8');
   console.log(`\n结果已写入 ${out}`);
+
+  // 历史快照（Langfuse 式评测可观测：单次分数无意义，趋势与回归对比才有意义）。
+  // 只追加不覆盖；含时间戳/模式/commit，本地趋势数据不入库（evals/history/ 已 gitignore）。
+  const historyDir = path.join(__dirname, 'history');
+  fs.mkdirSync(historyDir, { recursive: true });
+  const d = new Date();
+  const p2 = n => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+  const gitCommit = (() => {
+    try {
+      return require('child_process').execSync('git rev-parse --short HEAD', { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    } catch { return null; }
+  })();
+  const snapshotName = `${stamp}-${MODE}.json`;
+  fs.writeFileSync(path.join(historyDir, snapshotName), JSON.stringify({
+    ...resultPayload, ranAt: d.toISOString(), gitCommit,
+  }, null, 1), 'utf8');
+  console.log(`历史快照已追加 evals/history/${snapshotName}（趋势对比: npm run eval:compare）`);
 
   const writeChecks = last.rows.filter(r => r.type === 'write');
   console.log(writeChecks.every(r => r.pass)

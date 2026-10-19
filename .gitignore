@@ -10,6 +10,9 @@ data/server.log
 data/sse-test.txt
 data/eval-*.log
 
+# 评测历史快照（本地趋势数据，不入库；生成见 evals/run-evals.js，对比见 evals/compare.js）
+evals/history/
+
 # 系统文件
 .DS_Store
 Thumbs.db
