@@ -810,4 +810,32 @@ server.listen(PORT, HOST, () => {
   console.log('');
   if (sim.on && !EXEC_MEDUSA) setInterval(() => { if (sim.on) simTick(false); }, sim.tickMs);
   setInterval(() => { for (const res of sseClients) { try { res.write(': hb\n\n'); } catch { sseClients.delete(res); } } }, 25000);
+
+  // 真店模式启动卫生：清点历史遗留提案，凡是引用了真店中不存在的实体（如仿真时期的
+  // 旧提案）的，标记为 rejected 并留审计——它们永远无法被安全执行
+  if (EXEC_MEDUSA) {
+    medusa.listProducts(200).then(products => {
+      const knownVariant = new Set(products.flatMap(p => p.variants.flatMap(v => [v.id, v.sku])));
+      const knownProduct = new Set(products.map(p => p.id));
+      let swept = 0;
+      for (const c of stagedChanges.filter(x => x.status === 'pending')) {
+        const ref = (c.params && (c.params.variant_id || c.params.product_id)) || '';
+        const known = (c.action === 'update_variant_price' || c.action === 'restock_variant')
+          ? knownVariant.has(ref) : knownProduct.has(ref);
+        if (!known) {
+          c.status = 'rejected';
+          c.decided_at = new Date().toISOString();
+          c.decided_by = 'system';
+          c.sweep_reason = '后端切换清理：提案引用的实体在真店中不存在';
+          audit('system', 'sweep', { change_id: c.id, action: c.action, ref });
+          swept++;
+        }
+      }
+      if (swept) {
+        persistRuntime();
+        broadcast('refresh', { reason: 'sweep' });
+        console.log('  ' + dim(`启动清理: 已归档 ${swept} 条引用失效的历史提案（见审计）`));
+      }
+    }).catch(() => {});
+  }
 });

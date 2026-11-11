@@ -241,6 +241,29 @@
   .chg:hover { border-color: var(--line-strong); transform: translateX(2px); }
   .chg.applied { border-left-color: var(--green); }
   .chg.rejected { border-left-color: var(--red); opacity: .65; }
+  .chg-top { display: flex; gap: 14px; align-items: flex-start; }
+  .chg-ico {
+    width: 38px; height: 38px; border-radius: 10px; flex: none;
+    display: grid; place-items: center; font-size: 17px;
+    background: var(--elev); border: 1px solid var(--line);
+  }
+  .chg-body { flex: 1; min-width: 0; }
+  .chg-title { font-weight: 600; font-size: 13.8px; line-height: 1.55; }
+  .chg-title b { color: var(--accent); font-variant-numeric: tabular-nums; }
+  .chg-reason { color: var(--text-2); font-size: 12.4px; margin-top: 5px; line-height: 1.6; }
+  .chg-side { display: flex; flex-direction: column; align-items: flex-end; gap: 9px; flex: none; }
+  .chg-btns { display: flex; gap: 8px; }
+  details.chg-tech { margin-top: 11px; }
+  details.chg-tech summary {
+    cursor: pointer; font-size: 11.5px; color: var(--text-3); list-style: none;
+    display: inline-flex; align-items: center; gap: 5px; user-select: none;
+  }
+  details.chg-tech summary::-webkit-details-marker { display: none; }
+  details.chg-tech summary::before { content: '▸'; transition: transform .15s ease; }
+  details.chg-tech[open] summary::before { transform: rotate(90deg); }
+  details.chg-tech summary:hover { color: var(--text-2); }
+  details.chg-tech .params { margin-top: 8px; }
+  .chg-meta { font-family: Consolas, monospace; font-size: 11px; color: var(--text-3); margin-top: 6px; }
   .chg .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
   .chg .action { font-weight: 600; font-size: 13.5px; }
   .chg .id { color: var(--text-3); font-size: 11.5px; font-family: Consolas, monospace; }
@@ -733,26 +756,79 @@ function renderKpis(a) {
 
 const ACTION_NAMES = { update_variant_price: '修改变体价格', update_product_title: '修改商品标题', update_product_description: '补全商品描述', restock_variant: '变体补货' };
 
+// 把变更翻译成人话（价格/标题/描述/库存），内部 ID 全部藏进「技术详情」
+const ACTION_ICON = { update_variant_price: '💰', update_product_title: '📝', update_product_description: '📄', restock_variant: '📦' };
+
+function findVariantRef(ref) {
+  for (const p of state.products) {
+    const v = p.variants.find(v => v.id === ref || v.sku === ref);
+    if (v) return { product: p, variant: v };
+  }
+  return null;
+}
+const refName = (hit) => hit ? `「${hit.product.title} · ${hit.variant.title}」` : '';
+
+function friendlyChange(c) {
+  const params = c.params || {};
+  if (c.action === 'update_variant_price') {
+    const hit = findVariantRef(params.variant_id);
+    const before = hit && hit.variant.price > 0 ? `现价 ¥${hit.variant.price} → ` : '';
+    return { icon: '💰', title: `把${refName(hit) || '「' + (params.variant_id || '?') + '」'}的价格 ${before}调整为 <b>¥${params.price}</b>` };
+  }
+  if (c.action === 'update_product_title') {
+    const p = state.products.find(x => x.id === params.product_id);
+    return { icon: '📝', title: `把「${p ? p.title : params.product_id || '?'}」的标题改为 <b>「${params.title}」</b>` };
+  }
+  if (c.action === 'update_product_description') {
+    const p = state.products.find(x => x.id === params.product_id);
+    return { icon: '📄', title: `为「${p ? p.title : params.product_id || '?'}」<b>补全商品描述</b>` };
+  }
+  if (c.action === 'restock_variant') {
+    const hit = findVariantRef(params.variant_id);
+    const before = hit ? `当前 ${hit.variant.inventory} 件 → ` : '';
+    return { icon: '📦', title: `把${refName(hit) || '「' + (params.variant_id || '?') + '」'}的库存 ${before}调整为 <b>${params.inventory} 件</b>` };
+  }
+  return { icon: '⚙️', title: esc(c.action) };
+}
+
 function renderQueue() {
   const box = $('staged');
-  let list = state.staged;
+  let list = [...state.staged];
   if (state.queueFilter !== 'all') list = list.filter(c => c.status === state.queueFilter);
+  // 待审批永远在最前，其余按时间倒序——不让历史卡片淹没需要拍板的提案
+  const rank = { pending: 0, applied: 1, rejected: 2 };
+  list.sort((a, b) => (rank[a.status] ?? 3) - (rank[b.status] ?? 3) || String(b.created_at).localeCompare(String(a.created_at)));
   if (!list.length) {
     box.innerHTML = `<div class="empty">队列空空如也 —— 去 <b onclick="switchView('agent')">🤖 Copilot</b> 派个活，或跑 <code>npm run -s demo</code></div>`;
     return;
   }
-  box.innerHTML = list.map((c, i) => `
+  box.innerHTML = list.map((c, i) => {
+    const f = friendlyChange(c);
+    const badgeTxt = ({pending:'待审批', applied:'已生效', rejected:'已拒绝'})[c.status];
+    return `
     <div class="chg ${c.status}" style="animation-delay:${Math.min(i * 40, 240)}ms">
-      <div class="head">
-        <span><span class="action">${ACTION_NAMES[c.action] || esc(c.action)}</span>&nbsp;&nbsp;<span class="id">${c.id}</span></span>
-        <span class="badge ${c.status}">${({pending:'待审批', applied:'已生效', rejected:'已拒绝'})[c.status]}</span>
+      <div class="chg-top">
+        <div class="chg-ico">${f.icon}</div>
+        <div class="chg-body">
+          <div class="chg-title">${f.title}</div>
+          ${c.reason ? `<div class="chg-reason">${esc(c.reason)}</div>` : ''}
+          <details class="chg-tech">
+            <summary>技术详情</summary>
+            <div class="params">${esc(JSON.stringify(c.params, null, 1))}</div>
+            <div class="chg-meta">${c.id} · ${c.action} · 提案于 ${(c.created_at || '').slice(0, 19).replace('T', ' ')}${c.decided_by ? ' · ' + c.decided_by + (c.decided_at ? ' 处理' : '') : ''}</div>
+          </details>
+        </div>
+        <div class="chg-side">
+          <span class="badge ${c.status}">${badgeTxt}</span>
+          ${c.status === 'pending' ? `
+          <div class="chg-btns">
+            <button class="btn btn-approve" onclick="decide('${c.id}','approve',this)">✓ 批准</button>
+            <button class="btn btn-reject" onclick="decide('${c.id}','reject',this)">✕ 拒绝</button>
+          </div>` : ''}
+        </div>
       </div>
-      <div class="params">${esc(JSON.stringify(c.params, null, 1))}</div>
-      ${c.reason ? `<div class="reason">${esc(c.reason)}</div>` : ''}
-      ${c.status === 'pending' ? `
-        <button class="btn btn-approve" onclick="decide('${c.id}','approve',this)">✓ 批准生效</button>
-        <button class="btn btn-reject" onclick="decide('${c.id}','reject',this)">✕ 拒绝</button>` : ''}
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 async function decide(id, verb, btn) {
